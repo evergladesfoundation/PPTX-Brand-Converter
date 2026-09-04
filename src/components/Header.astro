@@ -1,0 +1,36 @@
+---
+import { NAV, SITE } from "../consts";
+import ThemeToggle from "./ThemeToggle.astro";
+---
+
+<header
+  class="border-line bg-canvas/85 sticky top-0 z-20 border-b backdrop-blur-md"
+>
+  <div
+    class="mx-auto flex max-w-6xl items-center justify-between gap-6 px-6 py-4"
+  >
+    <a
+      href="/"
+      class="font-display text-xl font-semibold tracking-tight hover:text-copper transition"
+    >
+      {SITE.title}
+    </a>
+    <nav aria-label="Primary" class="flex items-center gap-2 sm:gap-6">
+      <ul class="hidden items-center gap-6 sm:flex">
+        {
+          NAV.map((item) => (
+            <li>
+              <a
+                href={item.href}
+                class="text-ink-muted hover:text-ink text-sm font-semibold tracking-wide transition"
+              >
+                {item.label}
+              </a>
+            </li>
+          ))
+        }
+      </ul>
+      <ThemeToggle />
+    </nav>
+  </div>
+</header>

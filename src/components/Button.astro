@@ -1,0 +1,38 @@
+---
+interface Props {
+  href?: string;
+  variant?: "primary" | "ghost";
+  class?: string;
+}
+
+const { href, variant = "primary", class: className } = Astro.props;
+
+const styles = {
+  primary:
+    "bg-copper text-canvas hover:bg-copper-dark active:scale-[0.98] shadow-lift",
+  ghost:
+    "border border-line bg-transparent text-ink hover:border-copper hover:text-copper active:scale-[0.98]",
+};
+
+const classes = [
+  "inline-flex min-h-11 items-center justify-center rounded-sm px-5 py-2.5 text-sm font-semibold tracking-wide transition duration-200 ease-out motion-reduce:transition-none motion-reduce:active:scale-100",
+  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-copper",
+  "disabled:cursor-not-allowed disabled:opacity-50",
+  styles[variant],
+  className,
+]
+  .filter(Boolean)
+  .join(" ");
+---
+
+{
+  href ? (
+    <a href={href} class={classes}>
+      <slot />
+    </a>
+  ) : (
+    <button type="button" class={classes}>
+      <slot />
+    </button>
+  )
+}

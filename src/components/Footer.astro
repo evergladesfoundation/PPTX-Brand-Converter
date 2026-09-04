@@ -1,0 +1,20 @@
+---
+import { SITE } from "../consts";
+
+const year = new Date().getFullYear();
+---
+
+<footer class="border-line mt-24 border-t">
+  <div
+    class="text-ink-muted mx-auto flex max-w-6xl flex-col gap-3 px-6 py-10 text-sm sm:flex-row sm:items-center sm:justify-between"
+  >
+    <p>
+      © {year}
+      {SITE.title}. Built with Astro and Tailwind CSS.
+    </p>
+    <p>
+      Edit <code class="text-ink">src/consts.ts</code> and
+      <code class="text-ink">src/styles/global.css</code> to make it yours.
+    </p>
+  </div>
+</footer>

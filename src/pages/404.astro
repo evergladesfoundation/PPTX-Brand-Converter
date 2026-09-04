@@ -1,0 +1,22 @@
+---
+import Layout from "../layouts/Layout.astro";
+import Button from "../components/Button.astro";
+---
+
+<Layout title="Page not found" description="This page does not exist.">
+  <section class="mx-auto max-w-3xl px-6 py-28">
+    <p class="text-copper text-xs font-semibold tracking-[0.22em] uppercase">
+      404
+    </p>
+    <h1 class="font-display mt-4 text-5xl font-semibold tracking-tight">
+      This page was never set.
+    </h1>
+    <p class="text-ink-muted mt-4 max-w-md text-lg leading-relaxed">
+      The route does not exist yet. Add a file in <code class="text-ink">src/pages</code> or
+      return home.
+    </p>
+    <div class="mt-10">
+      <Button href="/">Back to home</Button>
+    </div>
+  </section>
+</Layout>
