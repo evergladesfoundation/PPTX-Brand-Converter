@@ -1,30 +1,28 @@
-# Folio — Astro + Tailwind template
+# PPTX-Brand-Converter
 
-A small, reusable starter for static sites. Astro 7, Tailwind CSS v4, CSS-first design tokens, and a base layout with dark mode.
+Internal Everglades Foundation staff tool: upload any PowerPoint, extract titles, body, images, notes, and live Office charts, rebuild them onto the Foundation template, and download a branded deck.
 
-## Use this repo as a template
+This repo starts from an Astro 7 + Tailwind CSS v4 site. File upload and conversion will run on a Node server with a Python converter.
 
-After you push it to GitHub:
+## Run locally
 
-```sh
-npm create astro@latest my-site -- --template YOUR_GITHUB_USER/YOUR_REPO
-```
-
-Or clone this folder and run:
+Requires **Node.js 22.12** or newer.
 
 ```sh
 npm install
 npm run dev
 ```
 
-Requires **Node.js 22.12** or newer.
+Dev server: `localhost:4321`
 
-## Customize
+## Commands
 
-1. Site name, description, and nav — `src/consts.ts`
-2. Colors and fonts — `src/styles/global.css` (`:root` and `.dark`)
-3. Homepage — `src/pages/index.astro`
-4. Canonical URLs — set `site` in `astro.config.mjs`
+| Command           | Action                                      |
+| :---------------- | :------------------------------------------ |
+| `npm install`     | Install dependencies                        |
+| `npm run dev`     | Dev server at `localhost:4321`              |
+| `npm run build`   | Production build to `./dist/`               |
+| `npm run preview` | Preview the production build locally        |
 
 ## Project structure
 
@@ -37,15 +35,6 @@ src/
   styles/global.css      Tailwind + @theme tokens
 public/                  Favicon, robots.txt
 ```
-
-## Commands
-
-| Command           | Action                                      |
-| :---------------- | :------------------------------------------ |
-| `npm install`     | Install dependencies                        |
-| `npm run dev`     | Dev server at `localhost:4321`              |
-| `npm run build`   | Production build to `./dist/`               |
-| `npm run preview` | Preview the production build locally        |
 
 ## Tailwind notes
 
