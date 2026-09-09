@@ -23,3 +23,10 @@ Thumbs.db
 
 # jetbrains setting folder
 .idea/
+
+# converter
+converter/.venv/
+converter/**/__pycache__/
+fixtures/sample-everglades.pptx
+fixtures/from-api.pptx
+.tmp/

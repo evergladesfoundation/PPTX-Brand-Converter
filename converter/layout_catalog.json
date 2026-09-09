@@ -1,0 +1,69 @@
+{
+  "ids": [
+    "title",
+    "section",
+    "content",
+    "two_column",
+    "image",
+    "quote",
+    "chart"
+  ],
+  "pptxLayoutName": {
+    "title": "Title Slide",
+    "section": "Section Header",
+    "content": "Title and Content",
+    "two_column": "Two Content",
+    "image": "Picture with Caption",
+    "quote": "Title Only",
+    "chart": "Title Only"
+  },
+  "placeholders": {
+    "title": [
+      "center title",
+      "subtitle"
+    ],
+    "section": [
+      "title",
+      "text"
+    ],
+    "content": [
+      "title",
+      "body"
+    ],
+    "two_column": [
+      "title",
+      "body",
+      "body"
+    ],
+    "image": [
+      "title",
+      "picture",
+      "caption"
+    ],
+    "quote": [
+      "title"
+    ],
+    "chart": [
+      "title",
+      "embedded chart + Excel workbook"
+    ]
+  },
+  "labels": {
+    "title": "Title",
+    "section": "Section",
+    "content": "Content",
+    "two_column": "Two column",
+    "image": "Image",
+    "quote": "Quote",
+    "chart": "Chart"
+  },
+  "brand": {
+    "marsh": "0B433F",
+    "lagoon": "0893A6",
+    "sawgrass": "C1EA40",
+    "ink": "1C1C1C",
+    "white": "FFFFFF",
+    "accent_dark": "116680"
+  },
+  "notes": "Official Communications template should keep these layout ids. Chart layout must have a title placeholder and room for a live Office chart."
+}

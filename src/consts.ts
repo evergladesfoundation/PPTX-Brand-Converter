@@ -1,11 +1,8 @@
 export const SITE = {
-  title: "Folio",
+  title: "PPTX Converter",
   description:
-    "A reusable Astro 7 and Tailwind CSS v4 starter. Tokens live in CSS, pages live in files.",
-  url: "https://example.com",
+    "Upload any PowerPoint and rebuild it onto The Everglades Foundation template.",
+  url: "https://github.com/evergladesfoundation/PPTX-Brand-Converter",
 };
 
-export const NAV = [
-  { href: "/#features", label: "What’s included" },
-  { href: "/#customize", label: "Customize" },
-] as const;
+export const NAV = [{ href: "/#convert", label: "Convert a deck" }] as const;

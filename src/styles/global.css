@@ -3,43 +3,49 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 @theme {
-  --font-sans: "Source Sans 3", ui-sans-serif, system-ui, sans-serif;
-  --font-display: "Fraunces", "Iowan Old Style", "Palatino Linotype", Palatino,
-    serif;
+  --font-sans: "Poppins", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Poppins", ui-sans-serif, system-ui, sans-serif;
 
   --color-canvas: var(--canvas);
   --color-canvas-muted: var(--canvas-muted);
   --color-ink: var(--ink);
   --color-ink-muted: var(--ink-muted);
   --color-line: var(--line);
-  --color-copper: var(--copper);
-  --color-copper-dark: var(--copper-dark);
-  --color-copper-soft: var(--copper-soft);
+  --color-accent: var(--accent);
+  --color-accent-dark: var(--accent-dark);
+  --color-accent-soft: var(--accent-soft);
+  --color-lime: var(--lime);
+  --color-lagoon: #0893a6;
+  --color-marsh: #0b433f;
+  --color-sawgrass: #c1ea40;
 
-  --shadow-lift: 0 18px 40px -24px oklch(0.22 0.03 50 / 0.35);
+  --shadow-lift: 0 18px 40px -24px rgb(11 67 63 / 0.4);
 }
 
+/* Palette from https://www.evergladesfoundation.org/ */
 :root {
-  --canvas: oklch(0.97 0.012 85);
-  --canvas-muted: oklch(0.94 0.016 82);
-  --ink: oklch(0.22 0.025 50);
-  --ink-muted: oklch(0.42 0.03 50);
-  --line: oklch(0.22 0.025 50 / 0.12);
-  --copper: oklch(0.55 0.13 45);
-  --copper-dark: oklch(0.44 0.12 42);
-  --copper-soft: oklch(0.55 0.13 45 / 0.14);
+  --canvas: #ffffff;
+  --canvas-muted: #e7f3c1;
+  --ink: #1c1c1c;
+  --ink-muted: #605e5e;
+  --line: rgb(28 28 28 / 0.12);
+  --accent: #0893a6;
+  --accent-dark: #116680;
+  --accent-soft: rgb(8 147 166 / 0.14);
+  --lime: #c1ea40;
   color-scheme: light;
 }
 
 .dark {
-  --canvas: oklch(0.18 0.018 50);
-  --canvas-muted: oklch(0.22 0.02 50);
-  --ink: oklch(0.95 0.012 85);
-  --ink-muted: oklch(0.78 0.02 80);
-  --line: oklch(0.95 0.012 85 / 0.12);
-  --copper: oklch(0.74 0.12 55);
-  --copper-dark: oklch(0.82 0.1 60);
-  --copper-soft: oklch(0.74 0.12 55 / 0.16);
+  --canvas: #0b433f;
+  --canvas-muted: #116680;
+  --ink: #ffffff;
+  --ink-muted: #abede9;
+  --line: rgb(255 255 255 / 0.14);
+  --accent: #c1ea40;
+  --accent-dark: #bada55;
+  --accent-soft: rgb(193 234 64 / 0.16);
+  --lime: #c1ea40;
   color-scheme: dark;
 }
 
@@ -55,22 +61,32 @@
   }
 
   body {
-    @apply bg-canvas font-sans text-ink antialiased;
+    @apply bg-canvas font-sans text-base font-normal text-ink antialiased;
+    line-height: 1.4;
+    letter-spacing: 0;
     background-image:
-      radial-gradient(oklch(0.22 0.03 50 / 0.035) 0.6px, transparent 0.6px),
-      linear-gradient(180deg, var(--canvas), var(--canvas-muted));
+      radial-gradient(rgb(8 147 166 / 0.08) 0.6px, transparent 0.6px),
+      linear-gradient(180deg, var(--canvas), #f3f7f4);
     background-size:
       18px 18px,
       auto;
   }
 
+  h1,
+  h2,
+  h3 {
+    @apply font-extrabold;
+    line-height: 1.1;
+    letter-spacing: 0;
+  }
+
   .dark body {
     background-image:
-      radial-gradient(oklch(0.95 0.01 85 / 0.04) 0.6px, transparent 0.6px),
-      linear-gradient(180deg, var(--canvas), var(--canvas-muted));
+      radial-gradient(rgb(193 234 64 / 0.08) 0.6px, transparent 0.6px),
+      linear-gradient(180deg, var(--canvas), #083532);
   }
 
   :focus-visible {
-    @apply outline-2 outline-offset-2 outline-copper;
+    @apply outline-2 outline-offset-2 outline-accent;
   }
 }

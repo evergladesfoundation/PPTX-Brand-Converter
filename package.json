@@ -1,8 +1,8 @@
 {
-  "name": "folio",
+  "name": "pptx-brand-converter",
   "type": "module",
   "version": "0.0.1",
-  "description": "Astro 7 + Tailwind CSS v4 site template",
+  "description": "Internal Everglades Foundation PowerPoint template converter",
   "engines": {
     "node": ">=22.12.0"
   },
@@ -10,9 +10,12 @@
     "dev": "astro dev",
     "build": "astro build",
     "preview": "astro preview",
-    "astro": "astro"
+    "astro": "astro",
+    "template": "converter/.venv/Scripts/python converter/build_template.py",
+    "fixture": "converter/.venv/Scripts/python converter/build_fixture.py"
   },
   "dependencies": {
+    "@astrojs/node": "^11.0.0",
     "@tailwindcss/vite": "^4.3.3",
     "astro": "^7.3.1",
     "tailwindcss": "^4.3.3"

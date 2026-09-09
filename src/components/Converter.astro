@@ -1,0 +1,323 @@
+---
+interface Props {
+  authed: boolean;
+  authRequired: boolean;
+}
+
+const { authed, authRequired } = Astro.props;
+---
+
+<section id="convert" class="mx-auto max-w-6xl px-6 py-16" data-converter>
+  {
+    authRequired && !authed && (
+      <form
+        id="login-form"
+        class="border-line bg-canvas mx-auto max-w-md space-y-4 rounded-sm border p-8"
+      >
+        <h2 class="text-2xl font-extrabold uppercase">Staff sign-in</h2>
+        <p class="text-ink-muted font-light">
+          Communications set a password for this internal converter.
+        </p>
+        <label class="block">
+          <span class="text-sm font-bold">Password</span>
+          <input
+            name="password"
+            type="password"
+            autocomplete="current-password"
+            required
+            class="border-line mt-2 h-11 w-full rounded-sm border bg-transparent px-3"
+          />
+        </label>
+        <p id="login-error" class="text-sm text-red-700" hidden></p>
+        <button
+          type="submit"
+          class="bg-accent text-canvas hover:bg-accent-dark inline-flex min-h-11 items-center rounded-sm px-5 py-2.5 text-[15px] font-bold"
+        >
+          Continue
+        </button>
+      </form>
+    )
+  }
+
+  <div id="converter-app" class:list={[authRequired && !authed && "hidden"]}>
+    <div
+      id="dropzone"
+      class="border-line bg-canvas focus-within:border-accent hover:border-accent rounded-sm border-2 border-dashed px-6 py-16 text-center transition"
+      tabindex="0"
+      role="button"
+      aria-label="Upload a PowerPoint file"
+    >
+      <p class="text-accent text-sm font-light tracking-[0.05em] uppercase">
+        Step 1
+      </p>
+      <p class="mt-3 text-2xl font-extrabold uppercase">Drop a .pptx here</p>
+      <p class="text-ink-muted mx-auto mt-3 max-w-md font-light">
+        Up to 50 MB. Original layouts are not kept; titles, body, images, notes,
+        and live charts are rebuilt on the Everglades template.
+      </p>
+      <input
+        id="file-input"
+        class="sr-only"
+        type="file"
+        accept=".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation"
+      />
+      <p class="mt-6">
+        <label
+          for="file-input"
+          class="bg-accent text-canvas hover:bg-accent-dark inline-flex min-h-11 cursor-pointer items-center rounded-sm px-5 py-2.5 text-[15px] font-bold"
+        >
+          Choose file
+        </label>
+      </p>
+      <p id="file-label" class="text-ink-muted mt-4 text-sm"></p>
+    </div>
+
+    <p id="status" class="text-ink-muted mt-6 hidden text-sm" role="status"></p>
+    <p id="error" class="mt-6 hidden text-sm text-red-700" role="alert"></p>
+
+    <div id="preview" class="mt-12 hidden">
+      <div class="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <p class="text-accent text-sm font-light tracking-[0.05em] uppercase">
+            Step 2
+          </p>
+          <h2 class="mt-2 text-3xl font-extrabold uppercase">Review layouts</h2>
+        </div>
+        <button
+          id="download"
+          type="button"
+          class="bg-accent text-canvas hover:bg-accent-dark inline-flex min-h-11 items-center rounded-sm px-5 py-2.5 text-[15px] font-bold disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Download branded deck
+        </button>
+      </div>
+      <ol id="slides" class="mt-8 grid gap-6 md:grid-cols-2"></ol>
+    </div>
+  </div>
+</section>
+
+<script>
+  type LayoutOption = { id: string; label: string };
+  type SlidePreview = {
+    index: number;
+    title: string;
+    body: string[];
+    bodyPreview: string;
+    hasImage: boolean;
+    hasChart: boolean;
+    externalChart: boolean;
+    suggestedLayout: string;
+    warnings: string[];
+  };
+  type ParsePayload = {
+    fileName: string;
+    slideCount: number;
+    layouts: LayoutOption[];
+    slides: SlidePreview[];
+    error?: string;
+  };
+
+  const root = document.querySelector("[data-converter]");
+  const loginForm = document.getElementById("login-form") as HTMLFormElement | null;
+  const app = document.getElementById("converter-app");
+  const dropzone = document.getElementById("dropzone");
+  const fileInput = document.getElementById("file-input") as HTMLInputElement | null;
+  const fileLabel = document.getElementById("file-label");
+  const statusEl = document.getElementById("status");
+  const errorEl = document.getElementById("error");
+  const preview = document.getElementById("preview");
+  const slidesEl = document.getElementById("slides");
+  const downloadBtn = document.getElementById("download") as HTMLButtonElement | null;
+
+  let currentFile: File | null = null;
+  let layoutOptions: LayoutOption[] = [];
+  let chosen: string[] = [];
+
+  function showError(message: string) {
+    if (!errorEl) return;
+    errorEl.textContent = message;
+    errorEl.hidden = false;
+    errorEl.classList.remove("hidden");
+  }
+
+  function clearError() {
+    if (!errorEl) return;
+    errorEl.textContent = "";
+    errorEl.classList.add("hidden");
+  }
+
+  function setStatus(message: string | null) {
+    if (!statusEl) return;
+    if (!message) {
+      statusEl.classList.add("hidden");
+      statusEl.textContent = "";
+      return;
+    }
+    statusEl.textContent = message;
+    statusEl.classList.remove("hidden");
+  }
+
+  loginForm?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const loginError = document.getElementById("login-error");
+    const data = new FormData(loginForm);
+    const response = await fetch("/api/login", { method: "POST", body: data });
+    if (!response.ok) {
+      const payload = (await response.json()) as { error?: string };
+      if (loginError) {
+        loginError.hidden = false;
+        loginError.textContent = payload.error || "Could not sign in.";
+      }
+      return;
+    }
+    loginForm.classList.add("hidden");
+    app?.classList.remove("hidden");
+  });
+
+  async function parseFile(file: File) {
+    clearError();
+    if (!file.name.toLowerCase().endsWith(".pptx")) {
+      showError("Only .pptx files are supported.");
+      return;
+    }
+    currentFile = file;
+    if (fileLabel) {
+      const kb = Math.max(1, Math.round(file.size / 1024));
+      const size =
+        file.size >= 1024 * 1024
+          ? `${(file.size / 1024 / 1024).toFixed(1)} MB`
+          : `${kb} KB`;
+      fileLabel.textContent = `${file.name} · ${size}`;
+    }
+    setStatus("Reading slides…");
+    preview?.classList.add("hidden");
+    const body = new FormData();
+    body.set("file", file);
+    const response = await fetch("/api/parse", { method: "POST", body });
+    const payload = (await response.json()) as ParsePayload;
+    if (!response.ok) {
+      setStatus(null);
+      showError(payload.error || "Could not read this deck.");
+      return;
+    }
+    layoutOptions = payload.layouts;
+    chosen = payload.slides.map((slide) => slide.suggestedLayout);
+    renderSlides(payload.slides);
+    setStatus(`${payload.slideCount} slides ready. Adjust layouts if needed, then download.`);
+    preview?.classList.remove("hidden");
+  }
+
+  function renderSlides(slides: SlidePreview[]) {
+    if (!slidesEl) return;
+    slidesEl.replaceChildren();
+    slides.forEach((slide, index) => {
+      const item = document.createElement("li");
+      item.className = "border-line bg-canvas overflow-hidden rounded-sm border";
+      const badges = [
+        slide.hasChart ? "Live chart" : "",
+        slide.hasImage ? "Image" : "",
+        slide.externalChart ? "External Excel (will not stay live)" : "",
+      ]
+        .filter(Boolean)
+        .join(" · ");
+      const select = layoutOptions
+        .map(
+          (layout) =>
+            `<option value="${layout.id}" ${layout.id === chosen[index] ? "selected" : ""}>${layout.label}</option>`,
+        )
+        .join("");
+      item.innerHTML = `
+        <div class="bg-marsh h-2"></div>
+        <div class="space-y-3 p-5">
+          <p class="text-accent text-xs font-light tracking-[0.08em] uppercase">Slide ${index + 1}</p>
+          <p class="font-extrabold uppercase">${escapeHtml(slide.title || slide.body[0] || "Untitled")}</p>
+          <p class="text-ink-muted line-clamp-4 text-sm">${escapeHtml(slide.bodyPreview || "")}</p>
+          ${badges ? `<p class="text-sm font-bold">${escapeHtml(badges)}</p>` : ""}
+          ${slide.warnings.length ? `<p class="text-sm text-red-700">${escapeHtml(slide.warnings.join(" "))}</p>` : ""}
+          <label class="block text-sm">
+            <span class="font-bold">Layout</span>
+            <select data-index="${index}" class="border-line mt-2 h-11 w-full rounded-sm border bg-transparent px-3">${select}</select>
+          </label>
+        </div>
+      `;
+      const control = item.querySelector("select");
+      control?.addEventListener("change", () => {
+        chosen[index] = control.value;
+      });
+      slidesEl.append(item);
+    });
+  }
+
+  function escapeHtml(value: string) {
+    return value
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;");
+  }
+
+  dropzone?.addEventListener("click", (event) => {
+    if ((event.target as HTMLElement).closest("label")) return;
+    fileInput?.click();
+  });
+  dropzone?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      fileInput?.click();
+    }
+  });
+  dropzone?.addEventListener("dragover", (event) => {
+    event.preventDefault();
+    dropzone.classList.add("border-accent");
+  });
+  dropzone?.addEventListener("dragleave", () => {
+    dropzone.classList.remove("border-accent");
+  });
+  dropzone?.addEventListener("drop", (event) => {
+    event.preventDefault();
+    dropzone.classList.remove("border-accent");
+    const file = event.dataTransfer?.files[0];
+    if (file) void parseFile(file);
+  });
+  fileInput?.addEventListener("change", () => {
+    const file = fileInput.files?.[0];
+    if (file) void parseFile(file);
+  });
+
+  downloadBtn?.addEventListener("click", async () => {
+    if (!currentFile) return;
+    clearError();
+    downloadBtn.disabled = true;
+    setStatus("Rebuilding onto the Everglades template…");
+    const body = new FormData();
+    body.set("file", currentFile);
+    body.set("layouts", JSON.stringify(chosen));
+    try {
+      const response = await fetch("/api/convert", { method: "POST", body });
+      if (!response.ok) {
+        const payload = (await response.json()) as { error?: string };
+        showError(payload.error || "Conversion failed.");
+        setStatus(null);
+        return;
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      const name =
+        response.headers.get("Content-Disposition")?.match(/filename="(.+)"/)?.[1] ||
+        "everglades.pptx";
+      link.href = url;
+      link.download = name;
+      link.click();
+      URL.revokeObjectURL(url);
+      setStatus("Download started. Open the file in PowerPoint to edit live charts.");
+    } catch (error) {
+      showError(error instanceof Error ? error.message : "Conversion failed.");
+      setStatus(null);
+    } finally {
+      downloadBtn.disabled = false;
+    }
+  });
+
+  void root;
+</script>

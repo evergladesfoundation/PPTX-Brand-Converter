@@ -1,7 +1,23 @@
+---
+interface Props {
+  tone?: "on-dark" | "on-light";
+}
+
+const { tone = "on-light" } = Astro.props;
+const classes =
+  tone === "on-dark"
+    ? "border-white/30 text-white hover:border-sawgrass hover:text-sawgrass focus-visible:outline-sawgrass"
+    : "border-line text-ink hover:border-lagoon hover:text-lagoon focus-visible:outline-accent";
+---
+
 <button
   type="button"
   id="theme-toggle"
-  class="border-line text-ink hover:border-copper hover:text-copper inline-flex size-11 items-center justify-center rounded-sm border transition duration-200 ease-out focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-copper motion-reduce:transition-none"
+  class:list={[
+    "inline-flex size-11 items-center justify-center rounded-full border transition duration-200 ease-out motion-reduce:transition-none",
+    "focus-visible:outline-2 focus-visible:outline-offset-2",
+    classes,
+  ]}
   aria-label="Switch to dark theme"
 >
   <svg
