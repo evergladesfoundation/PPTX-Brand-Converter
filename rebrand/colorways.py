@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import io
 from copy import deepcopy
+from pathlib import Path
 from typing import Any
 
 from lxml import etree
@@ -17,10 +18,19 @@ from pptx.oxml.ns import qn
 
 from helpers import (
     A_NS,
+    P_NS,
     R_NS,
+    apply_picture_crop,
     classify_layout_role,
+    contain_fit,
+    content_safe_box,
+    delete_shape,
+    enum_name,
     hex_color,
+    is_edge_logo,
     iter_shapes_abs,
+    maybe_recompress,
+    placeholder_type,
     resolve_layout_map,
     theme_from_part_xml,
 )
@@ -306,13 +316,6 @@ def duplicate_slide(prs, index: int):
             parent.remove(el)
     source_part = source.part
     for shape in source.shapes:
-        if shape.shape_type in {MSO_SHAPE_TYPE.PICTURE, MSO_SHAPE_TYPE.LINKED_PICTURE}:
-            try:
-                blob = shape.image.blob
-                dest.shapes.add_picture(io.BytesIO(blob), int(shape.left), int(shape.top), int(shape.width), int(shape.height))
-                continue
-            except Exception:
-                pass
         new_el = deepcopy(shape._element)
         _rewire_blips(new_el, source_part, dest)
         dest.shapes._spTree.append(new_el)
@@ -427,32 +430,199 @@ def _fill_slot_group(slots: list[dict[str, Any]], texts: list[str]) -> None:
         # extra decorative slots keep template copy
 
 
-def replace_largest_picture(slide, image_path: str, slide_w: int, slide_h: int) -> bool:
-    pictures = []
+def strip_pic_locks(element) -> None:
+    """Remove picLocks (noChangeAspect etc.) so staff can crop, resize, and Change Picture."""
+    for locks in list(element.findall(f".//{{{A_NS}}}picLocks")):
+        parent = locks.getparent()
+        if parent is not None:
+            parent.remove(locks)
+
+
+def _is_picture_placeholder(shape) -> bool:
+    try:
+        if getattr(shape, "is_placeholder", False):
+            name = (enum_name(placeholder_type(shape)) or "").upper()
+            if name in {"PICTURE", "MEDIA_CLIP"}:
+                return True
+    except Exception:
+        pass
+    nv_pr = shape._element.find(f".//{{{P_NS}}}nvPr")
+    if nv_pr is None:
+        return False
+    ph = nv_pr.find(qn("p:ph"))
+    if ph is None:
+        return False
+    return (ph.get("type") or "").lower() in {"pic", "clipart", "media"}
+
+
+def cover_src_rect(img_w: int, img_h: int, box_w: int, box_h: int) -> dict[str, int]:
+    if not img_w or not img_h or not box_w or not box_h:
+        return {"left": 0, "right": 0, "top": 0, "bottom": 0}
+    img_aspect = img_w / img_h
+    box_aspect = box_w / box_h
+    if img_aspect > box_aspect:
+        visible = box_aspect / img_aspect
+        cut = max(0.0, (1 - visible) / 2)
+        units = int(cut * 100000)
+        return {"left": units, "right": units, "top": 0, "bottom": 0}
+    visible = img_aspect / box_aspect
+    cut = max(0.0, (1 - visible) / 2)
+    units = int(cut * 100000)
+    return {"left": 0, "right": 0, "top": units, "bottom": units}
+
+
+def _clear_src_rect(shape) -> None:
+    for src in list(shape._element.findall(f".//{{{A_NS}}}srcRect")):
+        parent = src.getparent()
+        if parent is not None:
+            parent.remove(src)
+
+
+def _swap_blip(shape, blob: bytes) -> None:
+    _image_part, rId = shape.part.get_or_add_image_part(io.BytesIO(blob))
+    embed_attr = f"{{{R_NS}}}embed"
+    link_attr = f"{{{R_NS}}}link"
+    for blip in shape._element.findall(f".//{{{A_NS}}}blip"):
+        blip.set(embed_attr, rId)
+        if link_attr in blip.attrib:
+            del blip.attrib[link_attr]
+
+
+def replace_picture_in_place(shape, blob: bytes, img_w: int | None, img_h: int | None) -> bool:
+    """Put a source blob into an existing p:pic / picture placeholder. Keep the frame."""
+    if _is_picture_placeholder(shape) and hasattr(shape, "insert_picture"):
+        try:
+            inserted = shape.insert_picture(io.BytesIO(blob))
+            shape = inserted
+        except Exception:
+            _swap_blip(shape, blob)
+    else:
+        _swap_blip(shape, blob)
+    strip_pic_locks(shape._element)
+    _clear_src_rect(shape)
+    if img_w and img_h:
+        apply_picture_crop(shape, cover_src_rect(int(img_w), int(img_h), int(shape.width or 1), int(shape.height or 1)))
+    return True
+
+
+def content_photo_frames(slide, slide_w: int, slide_h: int) -> list[dict[str, Any]]:
+    """Template content photo frames (not corner logos / master chrome)."""
+    recs: list[dict[str, Any]] = []
+    slide_area = max(1, int(slide_w) * int(slide_h))
     for shape in slide.shapes:
         if shape.shape_type not in {MSO_SHAPE_TYPE.PICTURE, MSO_SHAPE_TYPE.LINKED_PICTURE}:
             continue
-        area = int(shape.width) * int(shape.height)
-        pictures.append((area, shape))
-    if not pictures:
-        return False
-    pictures.sort(
+        left = int(shape.left or 0)
+        top = int(shape.top or 0)
+        width = int(shape.width or 0)
+        height = int(shape.height or 0)
+        area = width * height
+        recs.append(
+            {
+                "shape": shape,
+                "left": left,
+                "top": top,
+                "width": width,
+                "height": height,
+                "area": area,
+                "placeholder": _is_picture_placeholder(shape),
+            }
+        )
+    frames: list[dict[str, Any]] = []
+    for rec in recs:
+        siblings = [other for other in recs if abs(other["area"] - rec["area"]) / max(rec["area"], 1) <= 0.08]
+        if len(siblings) >= 2:
+            frames.append(rec)
+            continue
+        logo = is_edge_logo(rec["area"], slide_area, rec["left"], rec["top"], rec["width"], rec["height"], slide_w, slide_h)
+        if logo:
+            continue
+        if rec["area"] >= slide_area * 0.05:
+            frames.append(rec)
+    frames.sort(
         key=lambda item: (
-            int(item[0]),
-            int(getattr(item[1], "left", 0) or 0),
-            int(getattr(item[1], "top", 0) or 0),
-        ),
-        reverse=True,
+            0 if item["placeholder"] else 1,
+            -int(item["area"]),
+            int(item["left"]),
+            int(item["top"]),
+        )
     )
-    shape = pictures[0][1]
-    # Don't replace a corner logo (small, near an edge).
-    area = int(shape.width) * int(shape.height)
-    if area < slide_w * slide_h * 0.08:
+    return frames
+
+
+def place_source_photos(
+    slide,
+    placements: list[dict[str, Any]],
+    tokens: dict[str, Any],
+    flags: list[str],
+) -> None:
+    """Replace content photo frames in place. Never stack a floating pic over stock art."""
+    sources: list[dict[str, Any]] = []
+    for placement in placements:
+        image = placement.get("image") or {}
+        path = image.get("path")
+        if path and Path(path).exists():
+            sources.append(placement)
+    slide_w = int(tokens["slide_width"])
+    slide_h = int(tokens["slide_height"])
+    frames = content_photo_frames(slide, slide_w, slide_h)
+    used: set[int] = set()
+    for index, placement in enumerate(sources):
+        image = placement.get("image") or {}
+        blob = Path(image["path"]).read_bytes()
+        blob, _ext = maybe_recompress(blob, image.get("ext") or "png")
+        px = image.get("px") or [None, None]
+        img_w, img_h = px[0], px[1]
+        if not img_w or not img_h:
+            try:
+                from PIL import Image
+
+                with Image.open(io.BytesIO(blob)) as im:
+                    img_w, img_h = im.size
+            except Exception:
+                img_w, img_h = None, None
+        if index < len(frames):
+            shape = frames[index]["shape"]
+            replace_picture_in_place(shape, blob, img_w, img_h)
+            used.add(id(shape))
+            continue
+        # Extra source photo: unlocked p:pic in the content box, stock frames already consumed.
+        box = content_safe_box(tokens, tokens.get("_layout_index"))
+        if img_w and img_h:
+            fit = contain_fit(int(img_w), int(img_h), box)
+        else:
+            fit = box
+        picture = slide.shapes.add_picture(io.BytesIO(blob), int(fit["left"]), int(fit["top"]), int(fit["width"]), int(fit["height"]))
+        strip_pic_locks(picture._element)
+        flags.append("PICTURE_OVERFLOW")
+    if sources:
+        for frame in frames:
+            if id(frame["shape"]) not in used:
+                delete_shape(frame["shape"])
+
+
+def unlock_slide_pictures(slide) -> None:
+    """Staff can Change Picture / crop / resize every native pic on the slide."""
+    for shape, _left, _top in iter_shapes_abs(slide.shapes):
+        if shape.shape_type in {MSO_SHAPE_TYPE.PICTURE, MSO_SHAPE_TYPE.LINKED_PICTURE}:
+            strip_pic_locks(shape._element)
+
+
+def replace_largest_picture(slide, image_path: str, slide_w: int, slide_h: int) -> bool:
+    """Back-compat: put one image into the largest content photo frame."""
+    frames = content_photo_frames(slide, slide_w, slide_h)
+    if not frames:
         return False
-    left, top, width, height = int(shape.left), int(shape.top), int(shape.width), int(shape.height)
-    el = shape._element
-    parent = el.getparent()
-    if parent is not None:
-        parent.remove(el)
-    slide.shapes.add_picture(image_path, left, top, width, height)
+    blob = Path(image_path).read_bytes()
+    img_w = img_h = None
+    try:
+        from PIL import Image
+
+        with Image.open(io.BytesIO(blob)) as im:
+            img_w, img_h = im.size
+    except Exception:
+        pass
+    replace_picture_in_place(frames[0]["shape"], blob, img_w, img_h)
+    for frame in frames[1:]:
+        delete_shape(frame["shape"])
     return True

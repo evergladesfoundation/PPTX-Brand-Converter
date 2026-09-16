@@ -21,8 +21,10 @@ from colorways import (  # noqa: E402
     duplicate_slide,
     fill_text_slots,
     patch_theme_part,
+    place_source_photos,
     remap_srgb_in_slide,
-    replace_largest_picture,
+    strip_pic_locks,
+    unlock_slide_pictures,
 )
 from helpers import (  # noqa: E402
     add_rebuilt_chart,
@@ -198,6 +200,7 @@ def add_picture_placement(slide, placement: dict[str, Any], tokens: dict[str, An
                 inserted = pic_ph.insert_picture(io.BytesIO(blob))
                 apply_picture_crop(inserted, crop)
                 strip_effect_list(inserted)
+                strip_pic_locks(inserted._element)
                 _post_style_picture(inserted, blob, ext, img_w, img_h, tokens, brand)
                 return
             except Exception:
@@ -215,6 +218,7 @@ def add_picture_placement(slide, placement: dict[str, Any], tokens: dict[str, An
             target_box = content_safe_box(tokens, tokens.get("_layout_index"))
     fit = contain_fit(int(img_w), int(img_h), target_box)
     picture = slide.shapes.add_picture(io.BytesIO(blob), fit["left"], fit["top"], fit["width"], fit["height"])
+    strip_pic_locks(picture._element)
     apply_picture_crop(picture, crop)
     strip_effect_list(picture)
     _post_style_picture(picture, blob, ext, img_w, img_h, tokens, brand)
@@ -442,18 +446,17 @@ def fill_prototype_slide(slide, entry: dict[str, Any], tokens: dict[str, Any], b
         else:
             deferred.append(placement)
     fill_text_slots(slide, title, subtitle, body_paras)
-    pictured = False
+    pictures: list[dict[str, Any]] = []
+    rest_deferred: list[dict[str, Any]] = []
     for placement in deferred:
+        if placement.get("kind") == "picture":
+            pictures.append(placement)
+        else:
+            rest_deferred.append(placement)
+    place_source_photos(slide, pictures, tokens, flags)
+    for placement in rest_deferred:
         kind = placement.get("kind")
-        if kind == "picture":
-            image = placement.get("image") or {}
-            path = image.get("path")
-            if path and Path(path).exists() and not pictured:
-                if replace_largest_picture(slide, path, int(tokens["slide_width"]), int(tokens["slide_height"])):
-                    pictured = True
-                    continue
-            add_picture_placement(slide, placement, tokens, brand, flags)
-        elif kind == "table":
+        if kind == "table":
             add_table_placement(slide, placement, tokens, brand)
         elif kind == "chart":
             add_chart_placement(slide, placement, tokens, brand, flags, work)
@@ -463,6 +466,7 @@ def fill_prototype_slide(slide, entry: dict[str, Any], tokens: dict[str, Any], b
             add_line(slide, placement, tokens)
         elif kind == "media":
             add_media_placeholder(slide, placement, tokens, brand, flags)
+    unlock_slide_pictures(slide)
 
 
 def fill_layout_slide(slide, entry: dict[str, Any], tokens: dict[str, Any], brand: dict[str, Any], flags: list[str], work: dict[str, Any]) -> None:
@@ -491,6 +495,7 @@ def fill_layout_slide(slide, entry: dict[str, Any], tokens: dict[str, Any], bran
             add_line(slide, placement, tokens)
         elif kind == "media":
             add_media_placeholder(slide, placement, tokens, brand, flags)
+    unlock_slide_pictures(slide)
 
 
 def build_presentation(
