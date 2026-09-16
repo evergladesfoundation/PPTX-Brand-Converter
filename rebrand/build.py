@@ -18,13 +18,13 @@ sys.path.insert(0, str(ROOT))
 
 from colorways import (  # noqa: E402
     apply_colorway,
+    bring_picture_to_front,
     duplicate_slide,
     fill_text_slots,
     patch_theme_part,
     place_source_photos,
     remap_srgb_in_slide,
-    strip_pic_locks,
-    unlock_slide_pictures,
+    sanitize_new_picture,
 )
 from helpers import (  # noqa: E402
     add_rebuilt_chart,
@@ -200,7 +200,8 @@ def add_picture_placement(slide, placement: dict[str, Any], tokens: dict[str, An
                 inserted = pic_ph.insert_picture(io.BytesIO(blob))
                 apply_picture_crop(inserted, crop)
                 strip_effect_list(inserted)
-                strip_pic_locks(inserted._element)
+                sanitize_new_picture(inserted)
+                bring_picture_to_front(inserted)
                 _post_style_picture(inserted, blob, ext, img_w, img_h, tokens, brand)
                 return
             except Exception:
@@ -218,7 +219,8 @@ def add_picture_placement(slide, placement: dict[str, Any], tokens: dict[str, An
             target_box = content_safe_box(tokens, tokens.get("_layout_index"))
     fit = contain_fit(int(img_w), int(img_h), target_box)
     picture = slide.shapes.add_picture(io.BytesIO(blob), fit["left"], fit["top"], fit["width"], fit["height"])
-    strip_pic_locks(picture._element)
+    sanitize_new_picture(picture)
+    bring_picture_to_front(picture)
     apply_picture_crop(picture, crop)
     strip_effect_list(picture)
     _post_style_picture(picture, blob, ext, img_w, img_h, tokens, brand)
@@ -466,7 +468,6 @@ def fill_prototype_slide(slide, entry: dict[str, Any], tokens: dict[str, Any], b
             add_line(slide, placement, tokens)
         elif kind == "media":
             add_media_placeholder(slide, placement, tokens, brand, flags)
-    unlock_slide_pictures(slide)
 
 
 def fill_layout_slide(slide, entry: dict[str, Any], tokens: dict[str, Any], brand: dict[str, Any], flags: list[str], work: dict[str, Any]) -> None:
@@ -495,7 +496,6 @@ def fill_layout_slide(slide, entry: dict[str, Any], tokens: dict[str, Any], bran
             add_line(slide, placement, tokens)
         elif kind == "media":
             add_media_placeholder(slide, placement, tokens, brand, flags)
-    unlock_slide_pictures(slide)
 
 
 def build_presentation(
