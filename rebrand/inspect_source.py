@@ -233,7 +233,7 @@ def pick_title(shapes: list[dict[str, Any]]) -> tuple[str, str]:
             title = named[0]["text"].strip()
     if not title:
         texts = [s for s in shapes if s.get("kind") == "text" and (s.get("text") or "").strip() and not s.get("drop_footer")]
-        texts.sort(key=lambda s: (s["bounds"]["top"], s["bounds"]["left"]))
+        texts.sort(key=lambda s: (int(s["bounds"]["top"]), int(s["bounds"]["left"])))
         if texts:
             candidate = texts[0]["text"].strip()
             if len(candidate.split()) <= 16:

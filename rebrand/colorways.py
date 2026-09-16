@@ -357,7 +357,7 @@ def prototype_text_slots(slide) -> list[dict[str, Any]]:
                 "text": text,
             }
         )
-    slots.sort(key=lambda s: (s["top"], s["left"]))
+    slots.sort(key=lambda s: (int(s["top"]), int(s["left"])))
     return slots
 
 
@@ -436,7 +436,14 @@ def replace_largest_picture(slide, image_path: str, slide_w: int, slide_h: int) 
         pictures.append((area, shape))
     if not pictures:
         return False
-    pictures.sort(reverse=True)
+    pictures.sort(
+        key=lambda item: (
+            int(item[0]),
+            int(getattr(item[1], "left", 0) or 0),
+            int(getattr(item[1], "top", 0) or 0),
+        ),
+        reverse=True,
+    )
     shape = pictures[0][1]
     # Don't replace a corner logo (small, near an edge).
     area = int(shape.width) * int(shape.height)
