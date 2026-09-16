@@ -595,17 +595,6 @@ def place_source_photos(
             continue
 
 
-def unlock_slide_pictures(slide) -> None:
-    """Sanitize newly added pictures; logos/chrome are left as cloned template pics."""
-    for shape, _left, _top in iter_shapes_abs(slide.shapes):
-        if shape.shape_type not in {MSO_SHAPE_TYPE.PICTURE, MSO_SHAPE_TYPE.LINKED_PICTURE}:
-            continue
-        nv_pr = shape._element.find(f".//{{{P_NS}}}nvPr")
-        if nv_pr is not None and list(nv_pr):
-            continue
-        sanitize_new_picture(shape)
-
-
 def replace_largest_picture(slide, image_path: str, slide_w: int, slide_h: int) -> bool:
     """Back-compat: one source image into the largest content photo frame."""
     frames = content_photo_frames(slide, slide_w, slide_h)
