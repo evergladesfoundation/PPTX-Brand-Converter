@@ -14,7 +14,7 @@ export const POST: APIRoute = async ({ request }) => {
     return jsonError("Choose a .pptx file.", 400);
   }
   if (!file.name.toLowerCase().endsWith(".pptx")) {
-    return jsonError("Only .pptx files are supported.", 400);
+    return jsonError("Only .pptx files are supported for the source deck.", 400);
   }
   if (file.size > MAX_UPLOAD_BYTES) {
     return jsonError("File is over the 50 MB limit.", 413);

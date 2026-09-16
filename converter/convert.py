@@ -1,4 +1,8 @@
-"""Parse a PPTX, classify slides, and rebuild onto the Everglades template."""
+"""Deprecated CLI. Conversion lives in rebrand/ (inspect → plan → build → QA).
+
+Kept so existing scripts do not break; the staff app no longer calls this file.
+Do not extend this module to satisfy the rebrand spec.
+"""
 
 from __future__ import annotations
 

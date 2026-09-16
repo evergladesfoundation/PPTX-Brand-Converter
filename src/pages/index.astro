@@ -15,9 +15,10 @@ const { authed, authRequired } = Astro.locals;
         Rebuild any deck on the Everglades template.
       </h1>
       <p class="text-ink-muted mt-6 max-w-xl text-lg font-light tracking-[0.05em]">
-        Titles, bullets, images, notes, and live Excel charts are lifted from the
-        file you upload and placed on Foundation layouts. Animations and linked
-        desktop workbooks are not kept.
+        Titles, bullets, images, tables, notes, and charts are lifted from the
+        file you upload and rebuilt on Foundation layouts. Charts become new
+        native Office charts on the template (unsupported or Excel-linked charts
+        are rasterized and flagged). Animations are not kept.
       </p>
     </div>
   </section>

@@ -30,3 +30,4 @@ converter/**/__pycache__/
 fixtures/sample-everglades.pptx
 fixtures/from-api.pptx
 .tmp/
+rebrand/**/__pycache__/

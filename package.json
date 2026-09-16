@@ -11,8 +11,9 @@
     "build": "astro build",
     "preview": "astro preview",
     "astro": "astro",
-    "template": "converter/.venv/Scripts/python converter/build_template.py",
-    "fixture": "converter/.venv/Scripts/python converter/build_fixture.py"
+    "template": "node scripts/run-python.mjs converter/build_template.py",
+    "fixture": "node scripts/run-python.mjs converter/build_fixture.py",
+    "rebrand": "node scripts/run-python.mjs rebrand/inspect_template.py templates/everglades.pptx --out-dir .tmp/rebrand"
   },
   "dependencies": {
     "@astrojs/node": "^11.0.0",

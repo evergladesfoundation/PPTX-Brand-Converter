@@ -6,25 +6,37 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
+export const SPEC_ROLES = [
+  "TITLE",
+  "SECTION",
+  "TITLE_BODY",
+  "TWO_CONTENT",
+  "TITLE_ONLY",
+  "PICTURE",
+  "BLANK",
+  "CLOSING",
+] as const;
 
-const CONVERT_NAME = join("converter", "convert.py");
+const API_PY = join("rebrand", "api.py");
+const TEMPLATE_REL = join("templates", "everglades.pptx");
 
 function findRepoRoot(): string {
   const starts = [process.cwd(), fileURLToPath(new URL(".", import.meta.url))];
   for (const start of starts) {
     let dir = start;
     for (let i = 0; i < 10; i++) {
-      if (existsSync(join(dir, CONVERT_NAME))) return dir;
+      if (existsSync(join(dir, API_PY))) return dir;
       const parent = join(dir, "..");
       if (parent === dir) break;
       dir = parent;
     }
   }
-  throw new Error("Could not find converter/convert.py from the server process.");
+  throw new Error("Could not find rebrand/api.py from the server process.");
 }
 
 const ROOT = findRepoRoot();
-const CONVERT_PY = join(ROOT, CONVERT_NAME);
+const API_PATH = join(ROOT, API_PY);
+export const TEMPLATE_PATH = join(ROOT, TEMPLATE_REL);
 
 export function pythonExecutable(): string {
   const windows = join(ROOT, "converter", ".venv", "Scripts", "python.exe");
@@ -81,11 +93,23 @@ async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   }
 }
 
+function templatePath(): string {
+  if (!existsSync(TEMPLATE_PATH)) {
+    throw new Error(
+      "Missing templates/everglades.pptx. Run npm run template for a stand-in, or place Communications’ official TEMPLATE.pptx there.",
+    );
+  }
+  return TEMPLATE_PATH;
+}
+
 export async function parsePptx(bytes: Uint8Array, fileName: string) {
   return withTempDir(async (dir) => {
     const input = join(dir, fileName.endsWith(".pptx") ? fileName : "upload.pptx");
     await writeFile(input, bytes);
-    const stdout = await runPython([CONVERT_PY, "parse", input], 60_000);
+    const stdout = await runPython(
+      [API_PATH, "parse", input, "--template", templatePath(), "--out-dir", dir],
+      120_000,
+    );
     return JSON.parse(stdout) as ParseResult;
   });
 }
@@ -93,45 +117,85 @@ export async function parsePptx(bytes: Uint8Array, fileName: string) {
 export async function convertPptx(
   bytes: Uint8Array,
   fileName: string,
-  layouts: string[],
+  overrides: PlanOverride[],
 ) {
   return withTempDir(async (dir) => {
     const input = join(dir, "upload.pptx");
-    const output = join(dir, "everglades.pptx");
-    const layoutsPath = join(dir, "layouts.json");
+    const overridesPath = join(dir, "overrides.json");
     await writeFile(input, bytes);
-    await writeFile(layoutsPath, JSON.stringify(layouts));
+    await writeFile(overridesPath, JSON.stringify(overrides));
     const stdout = await runPython(
-      [CONVERT_PY, "convert", input, output, "--layouts", layoutsPath],
-      120_000,
+      [
+        API_PATH,
+        "convert",
+        input,
+        "--template",
+        templatePath(),
+        "--out-dir",
+        dir,
+        "--overrides",
+        overridesPath,
+      ],
+      300_000,
     );
-    const meta = JSON.parse(stdout) as { warnings?: string[] };
-    const file = await readFile(output);
+    const meta = JSON.parse(stdout) as ConvertMeta;
+    const file = await readFile(join(dir, "OUTPUT.pptx"));
     const base = fileName.replace(/\.pptx$/i, "") || "presentation";
     return {
       bytes: file,
       downloadName: `${base}-everglades.pptx`,
+      flags: meta.flags ?? [],
       warnings: meta.warnings ?? [],
+      checks: meta.checks ?? {},
+      reportMarkdown: meta.reportMarkdown ?? "",
+      parityDiffs: meta.parityDiffs ?? [],
+      slideCount: meta.slideCount ?? 0,
     };
   });
 }
 
+export type PlanOverride = {
+  source_index: number;
+  role?: string;
+  template_layout_index?: number;
+};
+
 export type ParseResult = {
   fileName: string;
   slideCount: number;
-  layouts: { id: string; label: string }[];
+  roles: { id: string; label: string }[];
+  layouts: { index: number; name: string; role: string }[];
+  layoutMap: Record<string, number>;
+  layoutNames: Record<string, string>;
   slides: {
     index: number;
     title: string;
-    body: string[];
+    subtitle: string;
     bodyPreview: string;
+    role: string;
+    templateLayoutIndex: number;
+    templateLayoutName: string;
+    shapeKinds: string[];
     hasImage: boolean;
     imageCount: number;
     hasChart: boolean;
-    externalChart: boolean;
     hasTable: boolean;
+    hasSmartArt: boolean;
     notes: string;
-    suggestedLayout: string;
+    hidden: boolean;
+    flags: string[];
     warnings: string[];
   }[];
+  plan: { entries: unknown[]; warnings?: string[] };
+  standInTemplate?: boolean;
+  templateNotes?: string[];
+};
+
+type ConvertMeta = {
+  flags?: string[];
+  warnings?: string[];
+  checks?: Record<string, { pass?: boolean; justified?: boolean; error?: string }>;
+  reportMarkdown?: string;
+  parityDiffs?: { source_index: number; source: string; output: string }[];
+  slideCount?: number;
 };
