@@ -19,6 +19,7 @@ from pptx import Presentation
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 
+from colorways import apply_colorway  # noqa: E402
 from helpers import (  # noqa: E402
     A_NS,
     allowed_colors,
@@ -269,8 +270,12 @@ def run_qa(out_dir: Path, source_path: Path, output_path: Path) -> dict[str, Any
     tokens = load_json(out_dir / "brand_tokens.json")
     manifest = load_json(out_dir / "source_manifest.json")
     plan = load_json(out_dir / "plan.json")
-    brand = parse_brand_md(None)
-    brand = {**(tokens.get("brand_md") or {}), **brand}
+    tokens = apply_colorway(tokens, plan.get("colorway") or tokens.get("colorway"))
+    file_brand = parse_brand_md(None)
+    token_brand = dict(tokens.get("brand_md") or {})
+    brand = {**file_brand, **token_brand}
+    for key in ("fonts", "color_whitelist", "chart_palette"):
+        brand[key] = sorted(set((file_brand.get(key) or []) + (token_brand.get(key) or [])))
     flags = []
     for entry in plan.get("entries") or []:
         flags.extend(entry.get("flags") or [])
@@ -368,13 +373,9 @@ def run_qa(out_dir: Path, source_path: Path, output_path: Path) -> dict[str, Any
         f"Source: `{source_path}`",
         f"Output: `{output_path}`",
         f"Template: `{tokens.get('source_template_path') or tokens.get('template_path')}`",
+        f"Colorway: `{tokens.get('colorway_label') or tokens.get('colorway') or 'green'}`",
         "",
     ]
-    if tokens.get("stand_in"):
-        lines += [
-            "> **Stand-in template:** `templates/everglades.pptx` is a generated starter, not Communications’ official file.",
-            "",
-        ]
     lines += ["## Plan", "", "| Output | Source | Role | Layout | Flags |", "| --- | --- | --- | --- | --- |"]
     for i, entry in enumerate(plan.get("entries") or [], start=1):
         flags_cell = ", ".join(entry.get("flags") or []) or "—"
@@ -433,11 +434,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out-dir", default=".")
     parser.add_argument("--source", default=None)
     parser.add_argument("--output", default=None)
+    parser.add_argument("--colorway", default=None)
     args = parser.parse_args(argv)
     out_dir = Path(args.out_dir)
     manifest = load_json(out_dir / "source_manifest.json")
     source = Path(args.source) if args.source else Path(manifest.get("source_path"))
     output = Path(args.output) if args.output else out_dir / "OUTPUT.pptx"
+    if args.colorway:
+        tokens = apply_colorway(load_json(out_dir / "brand_tokens.json"), args.colorway)
+        dump_json(out_dir / "brand_tokens.json", tokens)
     summary = run_qa(out_dir, source, output)
     failed = [
         name

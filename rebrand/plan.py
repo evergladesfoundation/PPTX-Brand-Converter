@@ -13,9 +13,6 @@ ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 
 from helpers import (  # noqa: E402
-    BODY_PH,
-    TITLE_PH,
-    concatenated_text,
     content_safe_box,
     dump_json,
     fits,
@@ -24,6 +21,7 @@ from helpers import (  # noqa: E402
     reduce_body_size,
     reduce_title_size,
 )
+from colorways import apply_colorway  # noqa: E402
 
 
 def _ph_type_name(ph: dict[str, Any]) -> str:
@@ -441,7 +439,13 @@ def apply_overrides(slides: list[dict[str, Any]], overrides: list[dict[str, Any]
             slide["_layout_override"] = int(ov["template_layout_index"])
 
 
-def build_plan(tokens: dict[str, Any], manifest: dict[str, Any], overrides: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+def build_plan(
+    tokens: dict[str, Any],
+    manifest: dict[str, Any],
+    overrides: list[dict[str, Any]] | None = None,
+    colorway: str | None = None,
+) -> dict[str, Any]:
+    tokens = apply_colorway(tokens, colorway or tokens.get("colorway"))
     slides = list(manifest.get("slides") or [])
     apply_overrides(slides, overrides)
     entries: list[dict[str, Any]] = []
@@ -455,6 +459,8 @@ def build_plan(tokens: dict[str, Any], manifest: dict[str, Any], overrides: list
         else:
             layout_index = layout_index_for_role(tokens, role)
         layout = next((l for l in tokens.get("layouts") or [] if int(l["index"]) == layout_index), None)
+        proto = next((p for p in tokens.get("prototypes") or [] if int(p["index"]) == layout_index), None)
+        layout_name = (proto or layout or {}).get("name")
         flags = []
         if slide.get("has_transitions_or_animations"):
             flags.append("ANIMATIONS_DROPPED")
@@ -473,7 +479,7 @@ def build_plan(tokens: dict[str, Any], manifest: dict[str, Any], overrides: list
             "source_index": int(slide["index"]),
             "role": role,
             "template_layout_index": layout_index,
-            "template_layout_name": (layout or {}).get("name"),
+            "template_layout_name": layout_name,
             "hidden": bool(slide.get("hidden")),
             "notes": slide.get("notes_text") or "",
             "placements": placements_for_slide(slide, role, tokens, layout_index),
@@ -487,6 +493,9 @@ def build_plan(tokens: dict[str, Any], manifest: dict[str, Any], overrides: list
         "output_count": len(entries),
         "warnings": warnings,
         "layout_map": tokens.get("layout_map"),
+        "colorway": tokens.get("colorway"),
+        "colorway_label": tokens.get("colorway_label"),
+        "build_mode": tokens.get("build_mode"),
     }
     return plan
 
@@ -495,9 +504,11 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Create plan.json from inspect artifacts")
     parser.add_argument("--out-dir", default=".")
     parser.add_argument("--overrides", default=None, help="JSON file or inline JSON array of role overrides")
+    parser.add_argument("--colorway", default=None)
     args = parser.parse_args(argv)
     out_dir = Path(args.out_dir)
-    tokens = load_json(out_dir / "brand_tokens.json")
+    tokens = apply_colorway(load_json(out_dir / "brand_tokens.json"), args.colorway)
+    dump_json(out_dir / "brand_tokens.json", tokens)
     manifest = load_json(out_dir / "source_manifest.json")
     overrides = None
     if args.overrides:

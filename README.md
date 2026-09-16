@@ -20,7 +20,7 @@ Dev server: `http://127.0.0.1:4321`
 
 Optional staff password: copy `.env.example` to `.env` and set `INTERNAL_PASSWORD`.
 
-Place Communications’ official template at `templates/everglades.pptx`. If you only have a `.potx`, the engine rewrites it to `.pptx` on inspect. Until that file arrives, `npm run template` generates a **stand-in** starter (not brand truth).
+Place Communications’ official 2023 template at `templates/everglades.pptx`. If you only have a `.potx`, the engine rewrites it to `.pptx` on inspect. Staff choose **green** (sawgrass lime) or **blue** (water teal) in the UI before convert; inspect, plan, rebuild, and QA all use that colorway.
 
 ## Commands
 
@@ -30,21 +30,21 @@ Place Communications’ official template at `templates/everglades.pptx`. If you
 | `npm run dev`      | Dev server at `localhost:4321` |
 | `npm run build`    | Production build to `./dist/` |
 | `npm run preview`  | Preview the production build locally |
-| `npm run template` | Rebuild the stand-in `templates/everglades.pptx` |
+| `npm run template` | Rebuild a python-pptx starter deck (dev only; does not replace the official Communications file) |
 | `npm run fixture`  | Rebuild `fixtures/sample.pptx` |
-| `rebrand/run.sh`   | Inspect → plan → build → QA on a source deck |
+| `rebrand/run.sh`   | Inspect → plan → build → QA on a source deck (`COLORWAY=green|blue`) |
 
 CLI (from repo root, using the converter venv):
 
 ```sh
-python rebrand/inspect_template.py templates/everglades.pptx --out-dir .tmp/rebrand
+python rebrand/inspect_template.py templates/everglades.pptx --out-dir .tmp/rebrand --colorway green
 python rebrand/inspect_source.py fixtures/sample.pptx --out-dir .tmp/rebrand
-python rebrand/plan.py --out-dir .tmp/rebrand
-python rebrand/build.py --out-dir .tmp/rebrand
-python rebrand/qa.py --out-dir .tmp/rebrand
+python rebrand/plan.py --out-dir .tmp/rebrand --colorway green
+python rebrand/build.py --out-dir .tmp/rebrand --colorway green
+python rebrand/qa.py --out-dir .tmp/rebrand --colorway green
 ```
 
-Or: `rebrand/run.sh templates/everglades.pptx fixtures/sample.pptx .tmp/rebrand`
+Or: `COLORWAY=blue rebrand/run.sh templates/everglades.pptx fixtures/sample.pptx .tmp/rebrand`
 
 ## Project structure
 

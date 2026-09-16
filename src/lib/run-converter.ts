@@ -16,6 +16,13 @@ export const SPEC_ROLES = [
   "BLANK",
   "CLOSING",
 ] as const;
+export const COLORWAYS = ["green", "blue"] as const;
+export type ColorwayId = (typeof COLORWAYS)[number];
+
+function normalizeColorway(value: string | undefined | null): ColorwayId {
+  const id = (value || "green").toLowerCase();
+  return COLORWAYS.includes(id as ColorwayId) ? (id as ColorwayId) : "green";
+}
 
 const API_PY = join("rebrand", "api.py");
 const TEMPLATE_REL = join("templates", "everglades.pptx");
@@ -96,18 +103,19 @@ async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
 function templatePath(): string {
   if (!existsSync(TEMPLATE_PATH)) {
     throw new Error(
-      "Missing templates/everglades.pptx. Run npm run template for a stand-in, or place Communications’ official TEMPLATE.pptx there.",
+      "Missing templates/everglades.pptx. Place Communications’ official 2023 TEMPLATE.pptx there.",
     );
   }
   return TEMPLATE_PATH;
 }
 
-export async function parsePptx(bytes: Uint8Array, fileName: string) {
+export async function parsePptx(bytes: Uint8Array, fileName: string, colorway: string = "green") {
+  const chosen = normalizeColorway(colorway);
   return withTempDir(async (dir) => {
     const input = join(dir, fileName.endsWith(".pptx") ? fileName : "upload.pptx");
     await writeFile(input, bytes);
     const stdout = await runPython(
-      [API_PATH, "parse", input, "--template", templatePath(), "--out-dir", dir],
+      [API_PATH, "parse", input, "--template", templatePath(), "--out-dir", dir, "--colorway", chosen],
       120_000,
     );
     return JSON.parse(stdout) as ParseResult;
@@ -118,7 +126,9 @@ export async function convertPptx(
   bytes: Uint8Array,
   fileName: string,
   overrides: PlanOverride[],
+  colorway: string = "green",
 ) {
+  const chosen = normalizeColorway(colorway);
   return withTempDir(async (dir) => {
     const input = join(dir, "upload.pptx");
     const overridesPath = join(dir, "overrides.json");
@@ -135,6 +145,8 @@ export async function convertPptx(
         dir,
         "--overrides",
         overridesPath,
+        "--colorway",
+        chosen,
       ],
       300_000,
     );
@@ -143,13 +155,14 @@ export async function convertPptx(
     const base = fileName.replace(/\.pptx$/i, "") || "presentation";
     return {
       bytes: file,
-      downloadName: `${base}-everglades.pptx`,
+      downloadName: `${base}-everglades-${chosen}.pptx`,
       flags: meta.flags ?? [],
       warnings: meta.warnings ?? [],
       checks: meta.checks ?? {},
       reportMarkdown: meta.reportMarkdown ?? "",
       parityDiffs: meta.parityDiffs ?? [],
       slideCount: meta.slideCount ?? 0,
+      colorway: meta.colorway ?? chosen,
     };
   });
 }
@@ -186,8 +199,10 @@ export type ParseResult = {
     flags: string[];
     warnings: string[];
   }[];
-  plan: { entries: unknown[]; warnings?: string[] };
-  standInTemplate?: boolean;
+  plan: { entries: unknown[]; warnings?: string[]; colorway?: string };
+  colorways?: { id: string; label: string; description?: string }[];
+  defaultColorway?: string;
+  selectedColorway?: string;
   templateNotes?: string[];
 };
 
@@ -198,4 +213,5 @@ type ConvertMeta = {
   reportMarkdown?: string;
   parityDiffs?: { source_index: number; source: string; output: string }[];
   slideCount?: number;
+  colorway?: string;
 };

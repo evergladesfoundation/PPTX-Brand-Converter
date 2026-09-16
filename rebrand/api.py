@@ -18,6 +18,7 @@ from inspect_source import inspect_source  # noqa: E402
 from inspect_template import inspect_template  # noqa: E402
 from plan import build_plan  # noqa: E402
 from helpers import dump_json  # noqa: E402
+from colorways import apply_colorway  # noqa: E402
 
 
 def parse_payload(tokens: dict[str, Any], manifest: dict[str, Any], plan: dict[str, Any]) -> dict[str, Any]:
@@ -76,20 +77,43 @@ def parse_payload(tokens: dict[str, Any], manifest: dict[str, Any], plan: dict[s
                 "warnings": [],
             }
         )
+    layout_names = dict(tokens.get("layout_names") or {})
+    for colorway in tokens.get("colorways") or []:
+        if colorway.get("id") == tokens.get("colorway"):
+            layout_names = dict(colorway.get("layout_names") or layout_names)
+            break
+    if not layout_names:
+        layout_names = {
+            str(k): layout_by_index.get(int(v), {}).get("name")
+            for k, v in (tokens.get("layout_map") or {}).items()
+            if str(v).isdigit() and int(v) in layout_by_index
+        }
+    colorways = [
+        {
+            "id": item.get("id"),
+            "label": item.get("label") or item.get("id"),
+            "description": item.get("description") or "",
+        }
+        for item in tokens.get("colorways") or []
+        if item.get("id")
+    ]
+    if not colorways:
+        colorways = [
+            {"id": "green", "label": "Green", "description": "Sawgrass lime accent (C1D451)"},
+            {"id": "blue", "label": "Blue", "description": "Water teal accent (00ACBF)"},
+        ]
     return {
         "fileName": Path(manifest.get("source_path") or "upload.pptx").name,
         "slideCount": int(manifest.get("slide_count") or 0),
         "roles": [{"id": role, "label": ROLE_LABELS[role]} for role in ROLES],
         "layouts": layouts,
         "layoutMap": tokens.get("layout_map") or {},
-        "layoutNames": {
-            str(k): layout_by_index.get(int(v), {}).get("name")
-            for k, v in (tokens.get("layout_map") or {}).items()
-            if str(v).isdigit() and int(v) in layout_by_index
-        },
+        "layoutNames": layout_names,
         "slides": slides_out,
         "plan": plan,
-        "standInTemplate": bool(tokens.get("stand_in")),
+        "colorways": colorways,
+        "defaultColorway": tokens.get("default_colorway") or "green",
+        "selectedColorway": tokens.get("colorway") or tokens.get("default_colorway") or "green",
         "templateNotes": tokens.get("notes") or [],
     }
 
@@ -98,9 +122,11 @@ def cmd_parse(args: argparse.Namespace) -> dict[str, Any]:
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     brand_md = Path(args.brand_md) if args.brand_md else None
-    tokens = inspect_template(Path(args.template), out_dir, brand_md)
+    tokens = inspect_template(Path(args.template), out_dir, brand_md, args.colorway)
+    tokens = apply_colorway(tokens, args.colorway)
+    dump_json(out_dir / "brand_tokens.json", tokens)
     manifest = inspect_source(Path(args.source), out_dir)
-    plan = build_plan(tokens, manifest, None)
+    plan = build_plan(tokens, manifest, None, args.colorway)
     dump_json(out_dir / "plan.json", plan)
     return parse_payload(tokens, manifest, plan)
 
@@ -110,7 +136,13 @@ def cmd_convert(args: argparse.Namespace) -> dict[str, Any]:
     from qa import run_qa
 
     out_dir = Path(args.out_dir)
-    tokens = load_json(out_dir / "brand_tokens.json") if (out_dir / "brand_tokens.json").exists() else inspect_template(Path(args.template), out_dir, Path(args.brand_md) if args.brand_md else None)
+    brand_md = Path(args.brand_md) if args.brand_md else None
+    if (out_dir / "brand_tokens.json").exists():
+        tokens = load_json(out_dir / "brand_tokens.json")
+    else:
+        tokens = inspect_template(Path(args.template), out_dir, brand_md, args.colorway)
+    tokens = apply_colorway(tokens, args.colorway)
+    dump_json(out_dir / "brand_tokens.json", tokens)
     manifest = load_json(out_dir / "source_manifest.json") if (out_dir / "source_manifest.json").exists() else inspect_source(Path(args.source), out_dir)
     overrides = None
     if args.overrides:
@@ -118,9 +150,8 @@ def cmd_convert(args: argparse.Namespace) -> dict[str, Any]:
         overrides = json.loads(raw.read_text(encoding="utf-8") if raw.exists() else args.overrides)
         if isinstance(overrides, dict) and "entries" in overrides:
             overrides = overrides["entries"]
-    plan = build_plan(tokens, manifest, overrides)
+    plan = build_plan(tokens, manifest, overrides, args.colorway)
     dump_json(out_dir / "plan.json", plan)
-    brand_md = Path(args.brand_md) if args.brand_md else None
     meta = build_presentation(
         template_path=Path(args.template),
         source_path=Path(args.source),
@@ -129,6 +160,7 @@ def cmd_convert(args: argparse.Namespace) -> dict[str, Any]:
         manifest=manifest,
         plan=plan,
         brand_md=brand_md,
+        colorway=args.colorway,
     )
     summary = run_qa(out_dir, Path(args.source), Path(meta["output"]))
     report_text = Path(summary["report"]).read_text(encoding="utf-8") if Path(summary["report"]).exists() else ""
@@ -141,6 +173,7 @@ def cmd_convert(args: argparse.Namespace) -> dict[str, Any]:
         "reportMarkdown": report_text,
         "parityDiffs": (summary.get("checks") or {}).get("text_parity", {}).get("diffs") or [],
         "plan": plan,
+        "colorway": tokens.get("colorway"),
     }
 
 
@@ -152,6 +185,7 @@ def main(argv: list[str] | None = None) -> int:
     parse_cmd.add_argument("--template", required=True)
     parse_cmd.add_argument("--out-dir", required=True)
     parse_cmd.add_argument("--brand-md", default=None)
+    parse_cmd.add_argument("--colorway", default=None)
 
     convert_cmd = sub.add_parser("convert")
     convert_cmd.add_argument("source")
@@ -159,6 +193,7 @@ def main(argv: list[str] | None = None) -> int:
     convert_cmd.add_argument("--out-dir", required=True)
     convert_cmd.add_argument("--overrides", default=None)
     convert_cmd.add_argument("--brand-md", default=None)
+    convert_cmd.add_argument("--colorway", default=None)
 
     args = parser.parse_args(argv)
     try:

@@ -18,14 +18,17 @@ elseif (Test-Path $VenvWin) { $Py = $VenvWin }
 elseif (Test-Path $VenvUnix) { $Py = $VenvUnix }
 else { $Py = "python" }
 
-& $Py (Join-Path $Root "rebrand\inspect_template.py") $Template --out-dir $Out
+$ColorwayArgs = @()
+if ($env:COLORWAY) { $ColorwayArgs = @("--colorway", $env:COLORWAY) }
+
+& $Py (Join-Path $Root "rebrand\inspect_template.py") $Template --out-dir $Out @ColorwayArgs
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 & $Py (Join-Path $Root "rebrand\inspect_source.py") $Source --out-dir $Out
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-& $Py (Join-Path $Root "rebrand\plan.py") --out-dir $Out
+& $Py (Join-Path $Root "rebrand\plan.py") --out-dir $Out @ColorwayArgs
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-& $Py (Join-Path $Root "rebrand\build.py") --out-dir $Out --source $Source --template $Template
+& $Py (Join-Path $Root "rebrand\build.py") --out-dir $Out --source $Source --template $Template @ColorwayArgs
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-& $Py (Join-Path $Root "rebrand\qa.py") --out-dir $Out --source $Source
+& $Py (Join-Path $Root "rebrand\qa.py") --out-dir $Out --source $Source @ColorwayArgs
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 Write-Host "Wrote $Out\OUTPUT.pptx and $Out\QA\qa-report.md"

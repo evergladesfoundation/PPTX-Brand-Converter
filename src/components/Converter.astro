@@ -73,9 +73,36 @@ const { authed, authRequired } = Astro.props;
       <p id="file-label" class="text-ink-muted mt-4 text-sm"></p>
     </div>
 
+    <fieldset
+      id="colorway"
+      class="border-line mt-8 rounded-sm border p-5"
+    >
+      <legend class="text-sm font-bold uppercase">Template colorway</legend>
+      <p class="text-ink-muted mt-1 text-sm font-light">
+        Choose green or blue before convert. Inspect, plan, rebuild, and QA all
+        use this palette.
+      </p>
+      <div class="mt-4 flex flex-wrap gap-6">
+        <label class="flex cursor-pointer items-center gap-2 text-sm">
+          <input
+            type="radio"
+            name="colorway"
+            value="green"
+            checked
+            class="accent-accent"
+          />
+          <span><span class="font-bold">Green</span> — sawgrass lime</span>
+        </label>
+        <label class="flex cursor-pointer items-center gap-2 text-sm">
+          <input type="radio" name="colorway" value="blue" class="accent-accent" />
+          <span><span class="font-bold">Blue</span> — water teal</span>
+        </label>
+      </div>
+    </fieldset>
+
     <p id="status" class="text-ink-muted mt-6 hidden text-sm" role="status"></p>
     <p id="error" class="mt-6 hidden text-sm text-red-700" role="alert"></p>
-    <p id="standin" class="mt-4 hidden text-sm text-amber-800"></p>
+    <p id="template-note" class="text-ink-muted mt-4 hidden text-sm"></p>
 
     <div id="preview" class="mt-12 hidden">
       <div class="flex flex-wrap items-end justify-between gap-4">
@@ -135,6 +162,8 @@ const { authed, authRequired } = Astro.props;
     slides: SlidePreview[];
     standInTemplate?: boolean;
     templateNotes?: string[];
+    colorways?: { id: string; label: string; description?: string }[];
+    selectedColorway?: string;
     error?: string;
   };
   type ConvertPayload = {
@@ -156,7 +185,7 @@ const { authed, authRequired } = Astro.props;
   const fileLabel = document.getElementById("file-label");
   const statusEl = document.getElementById("status");
   const errorEl = document.getElementById("error");
-  const standinEl = document.getElementById("standin");
+  const templateNoteEl = document.getElementById("template-note");
   const preview = document.getElementById("preview");
   const slidesEl = document.getElementById("slides");
   const downloadBtn = document.getElementById("download") as HTMLButtonElement | null;
@@ -193,6 +222,20 @@ const { authed, authRequired } = Astro.props;
     }
     statusEl.textContent = message;
     statusEl.classList.remove("hidden");
+  }
+
+  function selectedColorway() {
+    const checked = document.querySelector(
+      'input[name="colorway"]:checked',
+    ) as HTMLInputElement | null;
+    return checked?.value === "blue" ? "blue" : "green";
+  }
+
+  function setColorway(id: string) {
+    const radios = document.querySelectorAll('input[name="colorway"]') as NodeListOf<HTMLInputElement>;
+    for (const radio of radios) {
+      radio.checked = radio.value === id;
+    }
   }
 
   function layoutCaption(role: string) {
@@ -240,6 +283,7 @@ const { authed, authRequired } = Astro.props;
     preview?.classList.add("hidden");
     const body = new FormData();
     body.set("file", file);
+    body.set("colorway", selectedColorway());
     const response = await fetch("/api/parse", { method: "POST", body });
     const payload = (await response.json()) as ParsePayload;
     if (!response.ok) {
@@ -252,18 +296,18 @@ const { authed, authRequired } = Astro.props;
     layoutNames = payload.layoutNames || {};
     chosen = payload.slides.map((slide) => slide.role);
     renderSlides(payload.slides);
-    if (standinEl) {
-      if (payload.standInTemplate) {
-        standinEl.textContent =
-          payload.templateNotes?.[0] ||
-          "Using the generated starter template. Replace templates/everglades.pptx with Communications’ official file when it arrives.";
-        standinEl.classList.remove("hidden");
+    if (payload.selectedColorway) setColorway(payload.selectedColorway);
+    if (templateNoteEl) {
+      const note = payload.templateNotes?.find((item) => !/stand-in|generated starter/i.test(item));
+      if (note) {
+        templateNoteEl.textContent = note;
+        templateNoteEl.classList.remove("hidden");
       } else {
-        standinEl.classList.add("hidden");
+        templateNoteEl.classList.add("hidden");
       }
     }
     setStatus(
-      `${payload.slideCount} slides planned. Adjust roles if needed, then download.`,
+      `${payload.slideCount} slides planned · ${selectedColorway()} colorway. Adjust roles if needed, then download.`,
     );
     preview?.classList.remove("hidden");
   }
@@ -349,15 +393,22 @@ const { authed, authRequired } = Astro.props;
     const file = fileInput.files?.[0];
     if (file) void parseFile(file);
   });
+  document.querySelectorAll('input[name="colorway"]').forEach((input) => {
+    input.addEventListener("change", () => {
+      if (currentFile) void parseFile(currentFile);
+    });
+  });
 
   downloadBtn?.addEventListener("click", async () => {
     if (!currentFile) return;
     clearError();
     downloadBtn.disabled = true;
-    setStatus("Rebuilding onto the Everglades template and running QA…");
+    const colorway = selectedColorway();
+    setStatus(`Rebuilding onto the Everglades ${colorway} template and running QA…`);
     qaBox?.classList.add("hidden");
     const body = new FormData();
     body.set("file", currentFile);
+    body.set("colorway", selectedColorway());
     body.set(
       "plan",
       JSON.stringify(
@@ -414,7 +465,7 @@ const { authed, authRequired } = Astro.props;
       if (qaReport) qaReport.textContent = payload.reportMarkdown || "";
       qaBox?.classList.remove("hidden");
       setStatus(
-        `Download started (${payload.slideCount ?? "?"} slides). Review QA flags below before circulating the deck.`,
+        `Download started (${payload.slideCount ?? "?"} slides, ${colorway} colorway). Review QA flags below before circulating the deck.`,
       );
     } catch (error) {
       showError(error instanceof Error ? error.message : "Conversion failed.");

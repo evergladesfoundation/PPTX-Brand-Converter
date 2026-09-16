@@ -16,21 +16,29 @@ from pptx.util import Emu, Inches, Pt
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 
+from colorways import (  # noqa: E402
+    apply_colorway,
+    duplicate_slide,
+    fill_text_slots,
+    patch_theme_part,
+    remap_srgb_in_slide,
+    replace_largest_picture,
+)
 from helpers import (  # noqa: E402
     add_rebuilt_chart,
-    enum_name,
     apply_line,
     apply_picture_crop,
     apply_round_rect,
     apply_run_style,
-    blob_hash,
     contain_fit,
     content_safe_box,
     crop_cut_fraction,
     delete_all_slides,
+    delete_slide,
     delete_shape,
     dump_json,
     ensure_pptx,
+    enum_name,
     is_screenshot_blob,
     layout_index_for_role,
     load_json,
@@ -43,7 +51,6 @@ from helpers import (  # noqa: E402
     strip_effect_list,
     style_table,
     theme_color,
-    theme_font,
     tint,
     unused_placeholder,
     uses_curly_quotes,
@@ -404,6 +411,88 @@ def cleanup_placeholders(slide) -> None:
             delete_shape(shape)
 
 
+def _placement_text(placement: dict[str, Any]) -> str:
+    if placement.get("text"):
+        return str(placement["text"])
+    paras = placement.get("paragraphs") or []
+    return "\n".join((p.get("text") or "").strip() for p in paras if (p.get("text") or "").strip())
+
+
+def fill_prototype_slide(slide, entry: dict[str, Any], tokens: dict[str, Any], brand: dict[str, Any], flags: list[str], work: dict[str, Any]) -> None:
+    title = ""
+    subtitle = ""
+    body_paras: list[str] = []
+    deferred: list[dict[str, Any]] = []
+    for placement in entry.get("placements") or []:
+        kind = placement.get("kind")
+        if placement.get("flag"):
+            flags.append(placement["flag"])
+        if kind == "title":
+            title = _placement_text(placement) or title
+        elif kind == "subtitle":
+            subtitle = _placement_text(placement) or subtitle
+        elif kind in {"body", "caption", "footnote", "textbox", "smartart"}:
+            if kind == "smartart":
+                flags.append("SMARTART_FLATTENED")
+            paras = placement.get("paragraphs") or []
+            if paras:
+                body_paras.extend((p.get("text") or "").strip() for p in paras if (p.get("text") or "").strip())
+            elif placement.get("text"):
+                body_paras.append(str(placement["text"]))
+        else:
+            deferred.append(placement)
+    fill_text_slots(slide, title, subtitle, body_paras)
+    pictured = False
+    for placement in deferred:
+        kind = placement.get("kind")
+        if kind == "picture":
+            image = placement.get("image") or {}
+            path = image.get("path")
+            if path and Path(path).exists() and not pictured:
+                if replace_largest_picture(slide, path, int(tokens["slide_width"]), int(tokens["slide_height"])):
+                    pictured = True
+                    continue
+            add_picture_placement(slide, placement, tokens, brand, flags)
+        elif kind == "table":
+            add_table_placement(slide, placement, tokens, brand)
+        elif kind == "chart":
+            add_chart_placement(slide, placement, tokens, brand, flags, work)
+        elif kind == "callout":
+            add_callout(slide, placement, tokens, brand)
+        elif kind == "line":
+            add_line(slide, placement, tokens)
+        elif kind == "media":
+            add_media_placeholder(slide, placement, tokens, brand, flags)
+
+
+def fill_layout_slide(slide, entry: dict[str, Any], tokens: dict[str, Any], brand: dict[str, Any], flags: list[str], work: dict[str, Any]) -> None:
+    for placement in entry.get("placements") or []:
+        kind = placement.get("kind")
+        if placement.get("flag"):
+            flags.append(placement["flag"])
+        if kind == "title":
+            fill_title(slide, placement, entry, tokens, brand)
+        elif kind in {"subtitle", "body"}:
+            fill_paragraph_target(slide, placement, tokens, brand, "subtitle" if kind == "subtitle" else "body", entry["role"])
+        elif kind in {"caption", "footnote", "textbox"}:
+            fill_paragraph_target(slide, placement, tokens, brand, "caption" if kind == "caption" else "textbox", entry["role"])
+        elif kind == "picture":
+            add_picture_placement(slide, placement, tokens, brand, flags)
+        elif kind == "table":
+            add_table_placement(slide, placement, tokens, brand)
+        elif kind == "chart":
+            add_chart_placement(slide, placement, tokens, brand, flags, work)
+        elif kind == "smartart":
+            flags.append("SMARTART_FLATTENED")
+            fill_paragraph_target(slide, placement, tokens, brand, "body", entry["role"])
+        elif kind == "callout":
+            add_callout(slide, placement, tokens, brand)
+        elif kind == "line":
+            add_line(slide, placement, tokens)
+        elif kind == "media":
+            add_media_placeholder(slide, placement, tokens, brand, flags)
+
+
 def build_presentation(
     *,
     template_path: Path,
@@ -413,60 +502,59 @@ def build_presentation(
     manifest: dict[str, Any],
     plan: dict[str, Any],
     brand_md: Path | None,
+    colorway: str | None = None,
 ) -> dict[str, Any]:
-    brand = parse_brand_md(brand_md)
-    brand = {**(tokens.get("brand_md") or {}), **brand}
+    tokens = apply_colorway(dict(tokens), colorway or tokens.get("colorway") or plan.get("colorway"))
+    file_brand = parse_brand_md(brand_md)
+    token_brand = dict(tokens.get("brand_md") or {})
+    brand = {**file_brand, **token_brand}
+    for key in ("fonts", "color_whitelist", "chart_palette"):
+        brand[key] = sorted(set((file_brand.get(key) or []) + (token_brand.get(key) or [])))
     pptx_template = ensure_pptx(template_path, out_dir / "TEMPLATE.pptx") if template_path.suffix.lower() == ".potx" else template_path
     dest = Presentation(str(pptx_template))
-    delete_all_slides(dest)
-    tokens = dict(tokens)
     tokens["_src_w"] = int(manifest.get("slide_width") or tokens["slide_width"])
     tokens["_src_h"] = int(manifest.get("slide_height") or tokens["slide_height"])
     flags: list[str] = []
     warnings: list[str] = list(plan.get("warnings") or [])
     work = {"chart_rasters": {}}
+    prototype_mode = tokens.get("build_mode") == "prototypes" and len(dest.slides) > 0
+    original_count = len(dest.slides)
+
+    if not prototype_mode:
+        delete_all_slides(dest)
 
     for entry in plan.get("entries") or []:
         layout_index = int(entry.get("template_layout_index") or layout_index_for_role(tokens, entry.get("role") or "TITLE_ONLY"))
-        if layout_index >= len(dest.slide_layouts):
-            layout_index = 0
-            warnings.append(f"Source slide {entry.get('source_index')} fell back to layout 0.")
-        layout = dest.slide_layouts[layout_index]
-        slide = dest.slides.add_slide(layout)
-        tokens["_layout_index"] = layout_index
-        tokens["_current_layout"] = layout_index
         entry_flags = list(entry.get("flags") or [])
-        for placement in entry.get("placements") or []:
-            kind = placement.get("kind")
-            if placement.get("flag"):
-                entry_flags.append(placement["flag"])
-            if kind == "title":
-                fill_title(slide, placement, entry, tokens, brand)
-            elif kind in {"subtitle", "body"}:
-                fill_paragraph_target(slide, placement, tokens, brand, "subtitle" if kind == "subtitle" else "body", entry["role"])
-            elif kind in {"caption", "footnote", "textbox"}:
-                fill_paragraph_target(slide, placement, tokens, brand, "caption" if kind == "caption" else "textbox", entry["role"])
-            elif kind == "picture":
-                add_picture_placement(slide, placement, tokens, brand, entry_flags)
-            elif kind == "table":
-                add_table_placement(slide, placement, tokens, brand)
-            elif kind == "chart":
-                add_chart_placement(slide, placement, tokens, brand, entry_flags, work)
-            elif kind == "smartart":
-                entry_flags.append("SMARTART_FLATTENED")
-                fill_paragraph_target(slide, placement, tokens, brand, "body", entry["role"])
-            elif kind == "callout":
-                add_callout(slide, placement, tokens, brand)
-            elif kind == "line":
-                add_line(slide, placement, tokens)
-            elif kind == "media":
-                add_media_placeholder(slide, placement, tokens, brand, entry_flags)
+        if prototype_mode:
+            if layout_index >= original_count:
+                layout_index = 0
+                warnings.append(f"Source slide {entry.get('source_index')} fell back to prototype 0.")
+            slide = duplicate_slide(dest, layout_index)
+            tokens["_layout_index"] = layout_index
+            tokens["_current_layout"] = layout_index
+            fill_prototype_slide(slide, entry, tokens, brand, entry_flags, work)
+        else:
+            if layout_index >= len(dest.slide_layouts):
+                layout_index = 0
+                warnings.append(f"Source slide {entry.get('source_index')} fell back to layout 0.")
+            layout = dest.slide_layouts[layout_index]
+            slide = dest.slides.add_slide(layout)
+            tokens["_layout_index"] = layout_index
+            tokens["_current_layout"] = layout_index
+            fill_layout_slide(slide, entry, tokens, brand, entry_flags, work)
+            cleanup_placeholders(slide)
+        remap_srgb_in_slide(slide, tokens.get("srgb_map") or {})
         notes = entry.get("notes") or ""
         if notes:
             slide.notes_slide.notes_text_frame.text = notes
         set_slide_hidden(slide, bool(entry.get("hidden")))
-        cleanup_placeholders(slide)
         flags.extend(entry_flags)
+
+    if prototype_mode:
+        for _ in range(original_count):
+            delete_slide(dest, 0)
+    patch_theme_part(dest, tokens.get("theme") or {})
 
     recreate_sections(dest, manifest.get("sections") or [], [])
     output_path = out_dir / "OUTPUT.pptx"
@@ -477,8 +565,10 @@ def build_presentation(
         "slide_count": len(plan.get("entries") or []),
         "flags": unique_flags,
         "warnings": warnings,
+        "colorway": tokens.get("colorway"),
     }
     dump_json(out_dir / "build_meta.json", meta)
+    dump_json(out_dir / "brand_tokens.json", {k: v for k, v in tokens.items() if not str(k).startswith("_")})
     return meta
 
 
@@ -488,9 +578,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--source", default=None)
     parser.add_argument("--template", default=None)
     parser.add_argument("--brand-md", default=None)
+    parser.add_argument("--colorway", default=None)
     args = parser.parse_args(argv)
     out_dir = Path(args.out_dir)
-    tokens = load_json(out_dir / "brand_tokens.json")
+    tokens = apply_colorway(load_json(out_dir / "brand_tokens.json"), args.colorway)
+    dump_json(out_dir / "brand_tokens.json", tokens)
     manifest = load_json(out_dir / "source_manifest.json")
     plan = load_json(out_dir / "plan.json")
     template = Path(args.template) if args.template else Path(tokens.get("template_path") or tokens.get("source_template_path"))
@@ -508,8 +600,9 @@ def main(argv: list[str] | None = None) -> int:
         manifest=manifest,
         plan=plan,
         brand_md=brand_md,
+        colorway=args.colorway,
     )
-    print(f"Wrote {meta['output']} ({meta['slide_count']} slides)")
+    print(f"Wrote {meta['output']} ({meta['slide_count']} slides, colorway={meta.get('colorway')})")
     return 0
 
 

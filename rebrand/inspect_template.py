@@ -26,6 +26,7 @@ from helpers import (  # noqa: E402
     resolve_layout_map,
     theme_from_part_xml,
 )
+from colorways import apply_colorway, detect_colorways, discover_prototypes  # noqa: E402
 
 
 def _theme_xml(prs: Presentation) -> bytes:
@@ -72,7 +73,12 @@ def _run_font(shape) -> dict[str, Any] | None:
     return None
 
 
-def inspect_template(template_path: Path, out_dir: Path, brand_md: Path | None = None) -> dict[str, Any]:
+def inspect_template(
+    template_path: Path,
+    out_dir: Path,
+    brand_md: Path | None = None,
+    colorway: str | None = None,
+) -> dict[str, Any]:
     out_dir.mkdir(parents=True, exist_ok=True)
     pptx_path = ensure_pptx(template_path, out_dir / "TEMPLATE.pptx") if template_path.suffix.lower() == ".potx" else template_path
     if template_path.suffix.lower() == ".potx":
@@ -139,48 +145,65 @@ def inspect_template(template_path: Path, out_dir: Path, brand_md: Path | None =
     width = int(prs.slide_width)
     height = int(prs.slide_height)
     aspect = "16:9" if abs((width / height) - (16 / 9)) < 0.08 else ("4:3" if abs((width / height) - (4 / 3)) < 0.08 else round(width / height, 4))
-    layout_map = resolve_layout_map(layouts)
+    prototypes = discover_prototypes(prs)
+    named_layouts = [
+        item
+        for item in layouts
+        if (item.get("name") or "").upper() not in {"DEFAULT", ""}
+        and any(
+            (ph.get("type_name") or "") in {"BODY", "OBJECT", "TITLE", "CENTER_TITLE"}
+            for ph in item.get("placeholders") or []
+        )
+    ]
+    if prototypes and (len(layouts) <= 1 or not named_layouts):
+        from colorways import layout_map_from_prototypes
+
+        layout_map = layout_map_from_prototypes(prototypes)
+        build_mode = "prototypes"
+    else:
+        layout_map = resolve_layout_map(layouts)
+        build_mode = "layouts"
     brand = parse_brand_md(brand_md)
     if brand.get("east_asian_font") and not theme["fonts"].get("minor_ea"):
         theme["fonts"]["minor_ea"] = brand["east_asian_font"]
+    colorways = detect_colorways(prs, layouts, theme, prototypes)
 
     tokens = {
         "template_path": str(used.resolve()),
         "source_template_path": str(template_path.resolve()),
         "potx_rewritten": potx_rewritten,
-        "stand_in": _is_stand_in(template_path),
         "slide_width": width,
         "slide_height": height,
         "aspect": aspect,
         "masters": masters,
         "master_chrome": chrome,
         "layouts": layouts,
-        "layout_map": layout_map,
-        "theme": theme,
+        "prototypes": prototypes,
+        "layout_map": colorways[0]["layout_map"] if colorways else layout_map,
+        "theme": colorways[0]["theme"] if colorways else theme,
         "sample_title_slide_fonts": sample_title,
         "layout_title_fonts": layout_title_fonts,
         "curly_quotes": curly,
         "brand_md": brand,
+        "colorways": colorways,
+        "default_colorway": (colorways[0]["id"] if colorways else "green"),
+        "build_mode": build_mode,
         "notes": [],
     }
-    if tokens["stand_in"]:
+    if prototypes:
         tokens["notes"].append(
-            "templates/everglades.pptx is a generated starter stand-in, not Communications’ official template. "
-            "Replace it with the official TEMPLATE.pptx / .potx when available."
+            f"Official template uses {len(prototypes)} sample-slide layouts "
+            f"(green / blue colorways). Dummy layout count={len(layouts)}."
         )
     if not any(
         ph.get("type_name") in {"BODY", "OBJECT", "VERTICAL_BODY"}
         for layout in layouts
         for ph in layout["placeholders"]
-    ):
+    ) and not prototypes:
         tokens["notes"].append("WARNING: template has zero layouts with a body placeholder.")
+    tokens = apply_colorway(tokens, colorway)
     dump_json(out_dir / "brand_tokens.json", tokens)
     return tokens
-
-
-def _is_stand_in(path: Path) -> bool:
-    name = path.name.lower()
-    return name in {"everglades.pptx", "everglades.potx"} and "templates" in {p.lower() for p in path.parts}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -188,14 +211,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("template")
     parser.add_argument("--out-dir", default=".")
     parser.add_argument("--brand-md", default=None)
+    parser.add_argument("--colorway", default=None)
     args = parser.parse_args(argv)
     template = Path(args.template)
     if not template.exists():
         print(f"Template not found: {template}", file=sys.stderr)
         return 1
     brand_md = Path(args.brand_md) if args.brand_md else None
-    tokens = inspect_template(template, Path(args.out_dir), brand_md)
-    print(f"Wrote {Path(args.out_dir) / 'brand_tokens.json'} ({len(tokens['layouts'])} layouts)")
+    tokens = inspect_template(template, Path(args.out_dir), brand_md, args.colorway)
+    print(f"Wrote {Path(args.out_dir) / 'brand_tokens.json'} ({len(tokens['layouts'])} layouts, colorway={tokens.get('colorway')})")
     return 0
 
 
