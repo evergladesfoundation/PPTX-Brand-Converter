@@ -52,8 +52,9 @@ const { authed, authRequired } = Astro.props;
       </p>
       <p class="mt-3 text-2xl font-extrabold uppercase">Drop a .pptx here</p>
       <p class="text-ink-muted mx-auto mt-3 max-w-md font-light">
-        Up to 50 MB. Original layouts are not kept; titles, body, images, notes,
-        and live charts are rebuilt on the Everglades template.
+        Up to 50 MB. Source content is rebuilt onto the Foundation template
+        layouts. Charts are recreated as native Office charts (or flagged for
+        a manual rebuild). Animations and linked desktop workbooks are not kept.
       </p>
       <input
         id="file-input"
@@ -72,8 +73,36 @@ const { authed, authRequired } = Astro.props;
       <p id="file-label" class="text-ink-muted mt-4 text-sm"></p>
     </div>
 
+    <fieldset
+      id="colorway"
+      class="border-line mt-8 rounded-sm border p-5"
+    >
+      <legend class="text-sm font-bold uppercase">Template colorway</legend>
+      <p class="text-ink-muted mt-1 text-sm font-light">
+        Choose green or blue before convert. Inspect, plan, rebuild, and QA all
+        use this palette.
+      </p>
+      <div class="mt-4 flex flex-wrap gap-6">
+        <label class="flex cursor-pointer items-center gap-2 text-sm">
+          <input
+            type="radio"
+            name="colorway"
+            value="green"
+            checked
+            class="accent-accent"
+          />
+          <span><span class="font-bold">Green</span> — sawgrass lime</span>
+        </label>
+        <label class="flex cursor-pointer items-center gap-2 text-sm">
+          <input type="radio" name="colorway" value="blue" class="accent-accent" />
+          <span><span class="font-bold">Blue</span> — water teal</span>
+        </label>
+      </div>
+    </fieldset>
+
     <p id="status" class="text-ink-muted mt-6 hidden text-sm" role="status"></p>
     <p id="error" class="mt-6 hidden text-sm text-red-700" role="alert"></p>
+    <p id="template-note" class="text-ink-muted mt-4 hidden text-sm"></p>
 
     <div id="preview" class="mt-12 hidden">
       <div class="flex flex-wrap items-end justify-between gap-4">
@@ -93,28 +122,58 @@ const { authed, authRequired } = Astro.props;
       </div>
       <ol id="slides" class="mt-8 grid gap-6 md:grid-cols-2"></ol>
     </div>
+
+    <div id="qa" class="mt-10 hidden">
+      <h3 class="text-2xl font-extrabold uppercase">QA flags</h3>
+      <ul id="qa-flags" class="mt-3 list-disc space-y-1 pl-5 text-sm"></ul>
+      <p id="qa-warnings" class="mt-4 text-sm text-red-700"></p>
+      <pre
+        id="qa-report"
+        class="border-line bg-canvas mt-4 max-h-80 overflow-auto rounded-sm border p-4 text-xs whitespace-pre-wrap"
+      ></pre>
+    </div>
   </div>
 </section>
 
 <script>
-  type LayoutOption = { id: string; label: string };
+  type RoleOption = { id: string; label: string };
   type SlidePreview = {
     index: number;
     title: string;
-    body: string[];
+    subtitle: string;
     bodyPreview: string;
+    role: string;
+    templateLayoutIndex: number;
+    templateLayoutName: string;
+    shapeKinds: string[];
     hasImage: boolean;
     hasChart: boolean;
-    externalChart: boolean;
-    suggestedLayout: string;
+    hasTable: boolean;
+    hasSmartArt: boolean;
+    flags: string[];
     warnings: string[];
   };
   type ParsePayload = {
     fileName: string;
     slideCount: number;
-    layouts: LayoutOption[];
+    roles: RoleOption[];
+    layoutMap: Record<string, number>;
+    layoutNames: Record<string, string>;
     slides: SlidePreview[];
+    templateNotes?: string[];
+    colorways?: { id: string; label: string; description?: string }[];
+    selectedColorway?: string;
     error?: string;
+  };
+  type ConvertPayload = {
+    error?: string;
+    downloadName?: string;
+    pptxBase64?: string;
+    flags?: string[];
+    warnings?: string[];
+    reportMarkdown?: string;
+    parityDiffs?: { source_index: number }[];
+    slideCount?: number;
   };
 
   const root = document.querySelector("[data-converter]");
@@ -125,12 +184,19 @@ const { authed, authRequired } = Astro.props;
   const fileLabel = document.getElementById("file-label");
   const statusEl = document.getElementById("status");
   const errorEl = document.getElementById("error");
+  const templateNoteEl = document.getElementById("template-note");
   const preview = document.getElementById("preview");
   const slidesEl = document.getElementById("slides");
   const downloadBtn = document.getElementById("download") as HTMLButtonElement | null;
+  const qaBox = document.getElementById("qa");
+  const qaFlags = document.getElementById("qa-flags");
+  const qaWarnings = document.getElementById("qa-warnings");
+  const qaReport = document.getElementById("qa-report");
 
   let currentFile: File | null = null;
-  let layoutOptions: LayoutOption[] = [];
+  let roleOptions: RoleOption[] = [];
+  let layoutMap: Record<string, number> = {};
+  let layoutNames: Record<string, string> = {};
   let chosen: string[] = [];
 
   function showError(message: string) {
@@ -157,6 +223,28 @@ const { authed, authRequired } = Astro.props;
     statusEl.classList.remove("hidden");
   }
 
+  function selectedColorway() {
+    const checked = document.querySelector(
+      'input[name="colorway"]:checked',
+    ) as HTMLInputElement | null;
+    return checked?.value === "blue" ? "blue" : "green";
+  }
+
+  function setColorway(id: string) {
+    const radios = document.querySelectorAll('input[name="colorway"]') as NodeListOf<HTMLInputElement>;
+    for (const radio of radios) {
+      radio.checked = radio.value === id;
+    }
+  }
+
+  function layoutCaption(role: string) {
+    const name = layoutNames[role];
+    const index = layoutMap[role];
+    if (name && index !== undefined) return `${name} (layout ${index})`;
+    if (name) return name;
+    return role;
+  }
+
   loginForm?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const loginError = document.getElementById("login-error");
@@ -176,8 +264,9 @@ const { authed, authRequired } = Astro.props;
 
   async function parseFile(file: File) {
     clearError();
+    qaBox?.classList.add("hidden");
     if (!file.name.toLowerCase().endsWith(".pptx")) {
-      showError("Only .pptx files are supported.");
+      showError("Only .pptx files are supported for the source deck.");
       return;
     }
     currentFile = file;
@@ -189,10 +278,11 @@ const { authed, authRequired } = Astro.props;
           : `${kb} KB`;
       fileLabel.textContent = `${file.name} · ${size}`;
     }
-    setStatus("Reading slides…");
+    setStatus("Inspecting slides and template…");
     preview?.classList.add("hidden");
     const body = new FormData();
     body.set("file", file);
+    body.set("colorway", selectedColorway());
     const response = await fetch("/api/parse", { method: "POST", body });
     const payload = (await response.json()) as ParsePayload;
     if (!response.ok) {
@@ -200,10 +290,24 @@ const { authed, authRequired } = Astro.props;
       showError(payload.error || "Could not read this deck.");
       return;
     }
-    layoutOptions = payload.layouts;
-    chosen = payload.slides.map((slide) => slide.suggestedLayout);
+    roleOptions = payload.roles;
+    layoutMap = payload.layoutMap || {};
+    layoutNames = payload.layoutNames || {};
+    chosen = payload.slides.map((slide) => slide.role);
     renderSlides(payload.slides);
-    setStatus(`${payload.slideCount} slides ready. Adjust layouts if needed, then download.`);
+    if (payload.selectedColorway) setColorway(payload.selectedColorway);
+    if (templateNoteEl) {
+      const note = payload.templateNotes?.find((item) => !/stand-in|generated starter/i.test(item));
+      if (note) {
+        templateNoteEl.textContent = note;
+        templateNoteEl.classList.remove("hidden");
+      } else {
+        templateNoteEl.classList.add("hidden");
+      }
+    }
+    setStatus(
+      `${payload.slideCount} slides planned · ${selectedColorway()} colorway. Adjust roles if needed, then download.`,
+    );
     preview?.classList.remove("hidden");
   }
 
@@ -214,35 +318,40 @@ const { authed, authRequired } = Astro.props;
       const item = document.createElement("li");
       item.className = "border-line bg-canvas overflow-hidden rounded-sm border";
       const badges = [
-        slide.hasChart ? "Live chart" : "",
+        slide.hasChart ? "Chart (rebuilt)" : "",
         slide.hasImage ? "Image" : "",
-        slide.externalChart ? "External Excel (will not stay live)" : "",
+        slide.hasTable ? "Table" : "",
+        slide.hasSmartArt ? "SmartArt → bullets" : "",
+        ...(slide.flags || []),
       ]
         .filter(Boolean)
         .join(" · ");
-      const select = layoutOptions
+      const select = roleOptions
         .map(
-          (layout) =>
-            `<option value="${layout.id}" ${layout.id === chosen[index] ? "selected" : ""}>${layout.label}</option>`,
+          (role) =>
+            `<option value="${role.id}" ${role.id === chosen[index] ? "selected" : ""}>${role.label}</option>`,
         )
         .join("");
       item.innerHTML = `
         <div class="bg-marsh h-2"></div>
         <div class="space-y-3 p-5">
           <p class="text-accent text-xs font-light tracking-[0.08em] uppercase">Slide ${index + 1}</p>
-          <p class="font-extrabold uppercase">${escapeHtml(slide.title || slide.body[0] || "Untitled")}</p>
+          <p class="font-extrabold uppercase">${escapeHtml(slide.title || slide.bodyPreview.split("\n")[0] || "Untitled")}</p>
           <p class="text-ink-muted line-clamp-4 text-sm">${escapeHtml(slide.bodyPreview || "")}</p>
           ${badges ? `<p class="text-sm font-bold">${escapeHtml(badges)}</p>` : ""}
           ${slide.warnings.length ? `<p class="text-sm text-red-700">${escapeHtml(slide.warnings.join(" "))}</p>` : ""}
           <label class="block text-sm">
-            <span class="font-bold">Layout</span>
+            <span class="font-bold">Layout role</span>
             <select data-index="${index}" class="border-line mt-2 h-11 w-full rounded-sm border bg-transparent px-3">${select}</select>
           </label>
+          <p class="text-ink-muted text-xs" data-layout-caption>${escapeHtml(layoutCaption(chosen[index]))}</p>
         </div>
       `;
       const control = item.querySelector("select");
+      const caption = item.querySelector("[data-layout-caption]");
       control?.addEventListener("change", () => {
         chosen[index] = control.value;
+        if (caption) caption.textContent = layoutCaption(control.value);
       });
       slidesEl.append(item);
     });
@@ -283,34 +392,80 @@ const { authed, authRequired } = Astro.props;
     const file = fileInput.files?.[0];
     if (file) void parseFile(file);
   });
+  document.querySelectorAll('input[name="colorway"]').forEach((input) => {
+    input.addEventListener("change", () => {
+      if (currentFile) void parseFile(currentFile);
+    });
+  });
 
   downloadBtn?.addEventListener("click", async () => {
     if (!currentFile) return;
     clearError();
     downloadBtn.disabled = true;
-    setStatus("Rebuilding onto the Everglades template…");
+    const colorway = selectedColorway();
+    setStatus(`Rebuilding onto the Everglades ${colorway} template and running QA…`);
+    qaBox?.classList.add("hidden");
     const body = new FormData();
     body.set("file", currentFile);
-    body.set("layouts", JSON.stringify(chosen));
+    body.set("colorway", selectedColorway());
+    body.set(
+      "plan",
+      JSON.stringify(
+        chosen.map((role, source_index) => ({ source_index, role })),
+      ),
+    );
     try {
       const response = await fetch("/api/convert", { method: "POST", body });
+      const payload = (await response.json()) as ConvertPayload;
       if (!response.ok) {
-        const payload = (await response.json()) as { error?: string };
         showError(payload.error || "Conversion failed.");
         setStatus(null);
         return;
       }
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      const name =
-        response.headers.get("Content-Disposition")?.match(/filename="(.+)"/)?.[1] ||
-        "everglades.pptx";
-      link.href = url;
-      link.download = name;
-      link.click();
-      URL.revokeObjectURL(url);
-      setStatus("Download started. Open the file in PowerPoint to edit live charts.");
+      const headerFlags = response.headers.get("X-QA-Flags");
+      const headerWarnings = response.headers.get("X-Conversion-Warnings");
+      const flags = payload.flags?.length
+        ? payload.flags
+        : headerFlags
+          ? (JSON.parse(decodeURIComponent(headerFlags)) as string[])
+          : [];
+      const warnings = payload.warnings?.length
+        ? payload.warnings
+        : headerWarnings
+          ? (JSON.parse(decodeURIComponent(headerWarnings)) as string[])
+          : [];
+      if (payload.pptxBase64) {
+        const binary = Uint8Array.from(atob(payload.pptxBase64), (ch) => ch.charCodeAt(0));
+        const blob = new Blob([binary], {
+          type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = payload.downloadName || "everglades.pptx";
+        link.click();
+        URL.revokeObjectURL(url);
+      }
+      if (qaFlags) {
+        qaFlags.replaceChildren();
+        const items = flags.length ? flags : ["none"];
+        for (const flag of items) {
+          const li = document.createElement("li");
+          li.textContent = flag;
+          qaFlags.append(li);
+        }
+      }
+      if (qaWarnings) {
+        const extra = payload.parityDiffs?.length
+          ? `${payload.parityDiffs.length} text-parity diff(s).`
+          : "";
+        qaWarnings.textContent = [...warnings, extra].filter(Boolean).join(" ");
+      }
+      if (qaReport) qaReport.textContent = payload.reportMarkdown || "";
+      qaBox?.classList.remove("hidden");
+      setStatus(
+        `Download started (${payload.slideCount ?? "?"} slides, ${colorway} colorway). Review QA flags below before circulating the deck.`,
+      );
     } catch (error) {
       showError(error instanceof Error ? error.message : "Conversion failed.");
       setStatus(null);

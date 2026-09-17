@@ -1,4 +1,11 @@
-"""Build templates/everglades.pptx with Foundation colors and named layouts."""
+"""Dev fixture generator for templates/everglades.pptx.
+
+This is NOT Communications’ official brand template. It produces a stand-in
+16:9 deck (python-pptx default layouts + Everglades theme colors) so the
+rebrand engine can run locally. Chrome is drawn on the slide master — never
+on individual slides during conversion. Replace templates/everglades.pptx
+with the official TEMPLATE.pptx / .potx when Communications provides it.
+"""
 
 from __future__ import annotations
 
@@ -99,7 +106,8 @@ def build() -> Path:
         available = ", ".join(by_name)
         raise RuntimeError(f"Missing layouts {missing}. Available: {available}")
 
-    # Keep one sample slide per catalog id so Communications can inspect placeholders.
+    # Sample slides are deleted before conversion. python-pptx masters cannot
+    # add_shape, so stand-in chrome stays on these samples only — not on output.
     samples = [
         ("title", "America's Everglades", "Restoration is worth it."),
         ("section", "Science", ""),

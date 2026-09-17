@@ -1,9 +1,7 @@
-"""Everglades Foundation slide layout catalog.
+"""Dev-only layout names for converter/build_template.py (stand-in generator).
 
-Maps staff-facing layout ids to the named layouts inside templates/everglades.pptx.
-Replace the template file with Communications' official .potx/.pptx when it
-arrives; keep these ids stable and update PPTX_LAYOUT_NAME if their layout
-names differ.
+Conversion uses rebrand/inspect_template.py → brand_tokens.json["layout_map"].
+Staff-facing quote/chart ids are retired.
 """
 
 from __future__ import annotations
