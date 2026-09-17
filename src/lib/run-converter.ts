@@ -16,11 +16,13 @@ export const SPEC_ROLES = [
   "BLANK",
   "CLOSING",
 ] as const;
+export const COLORWAYS = ["green", "blue"] as const;
+export type ColorwayId = (typeof COLORWAYS)[number];
 
-function normalizeColorway(value: string | undefined | null): string | undefined {
-  if (typeof value !== "string") return undefined;
-  const id = value.trim();
-  return id || undefined;
+function normalizeColorway(value: string | undefined | null): ColorwayId {
+  const raw = (value || "green").trim().toLowerCase();
+  if (raw === "blue" || raw === "teal" || raw === "water-teal") return "blue";
+  return "green";
 }
 
 const API_PY = join("rebrand", "api.py");
@@ -108,14 +110,15 @@ function templatePath(): string {
   return TEMPLATE_PATH;
 }
 
-export async function parsePptx(bytes: Uint8Array, fileName: string, colorway?: string) {
+export async function parsePptx(bytes: Uint8Array, fileName: string, colorway: string = "green") {
   const chosen = normalizeColorway(colorway);
   return withTempDir(async (dir) => {
     const input = join(dir, fileName.endsWith(".pptx") ? fileName : "upload.pptx");
     await writeFile(input, bytes);
-    const args = [API_PATH, "parse", input, "--template", templatePath(), "--out-dir", dir];
-    if (chosen) args.push("--colorway", chosen);
-    const stdout = await runPython(args, 120_000);
+    const stdout = await runPython(
+      [API_PATH, "parse", input, "--template", templatePath(), "--out-dir", dir, "--colorway", chosen],
+      120_000,
+    );
     return JSON.parse(stdout) as ParseResult;
   });
 }
@@ -124,7 +127,7 @@ export async function convertPptx(
   bytes: Uint8Array,
   fileName: string,
   overrides: PlanOverride[],
-  colorway?: string,
+  colorway: string = "green",
 ) {
   const chosen = normalizeColorway(colorway);
   return withTempDir(async (dir) => {
@@ -132,33 +135,36 @@ export async function convertPptx(
     const overridesPath = join(dir, "overrides.json");
     await writeFile(input, bytes);
     await writeFile(overridesPath, JSON.stringify(overrides));
-    const args = [
-      API_PATH,
-      "convert",
-      input,
-      "--template",
-      templatePath(),
-      "--out-dir",
-      dir,
-      "--overrides",
-      overridesPath,
-    ];
-    if (chosen) args.push("--colorway", chosen);
-    const stdout = await runPython(args, 300_000);
+    const stdout = await runPython(
+      [
+        API_PATH,
+        "convert",
+        input,
+        "--template",
+        templatePath(),
+        "--out-dir",
+        dir,
+        "--overrides",
+        overridesPath,
+        "--colorway",
+        chosen,
+      ],
+      300_000,
+    );
     const meta = JSON.parse(stdout) as ConvertMeta;
     const file = await readFile(join(dir, "OUTPUT.pptx"));
     const base = fileName.replace(/\.pptx$/i, "") || "presentation";
     const selected = meta.colorway || chosen;
     return {
       bytes: file,
-      downloadName: selected ? `${base}-everglades-${selected}.pptx` : `${base}-everglades.pptx`,
+      downloadName: `${base}-everglades-${selected}.pptx`,
       flags: meta.flags ?? [],
       warnings: meta.warnings ?? [],
       checks: meta.checks ?? {},
       reportMarkdown: meta.reportMarkdown ?? "",
       parityDiffs: meta.parityDiffs ?? [],
       slideCount: meta.slideCount ?? 0,
-      colorway: selected ?? null,
+      colorway: selected,
     };
   });
 }
@@ -195,10 +201,10 @@ export type ParseResult = {
     flags: string[];
     warnings: string[];
   }[];
-  plan: { entries: unknown[]; warnings?: string[]; colorway?: string | null };
+  plan: { entries: unknown[]; warnings?: string[]; colorway?: string };
   colorways?: { id: string; label: string; description?: string }[];
-  defaultColorway?: string | null;
-  selectedColorway?: string | null;
+  defaultColorway?: string;
+  selectedColorway?: string;
   palette?: { label: string; hex: string }[];
   templateNotes?: string[];
 };
@@ -210,5 +216,5 @@ type ConvertMeta = {
   reportMarkdown?: string;
   parityDiffs?: { source_index: number; source: string; output: string }[];
   slideCount?: number;
-  colorway?: string | null;
+  colorway?: string;
 };

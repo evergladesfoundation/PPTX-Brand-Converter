@@ -196,23 +196,28 @@ def inspect_template(
         "curly_quotes": curly,
         "brand_md": brand,
         "colorways": colorways,
-        "default_colorway": (colorways[0]["id"] if colorways else None),
+        "default_colorway": (colorways[0]["id"] if colorways else "green"),
         "build_mode": build_mode,
         "notes": [],
     }
     if prototypes:
         if colorways:
-            labels = ", ".join(c.get("label") or c.get("id") for c in colorways)
+            labels = ", ".join(
+                f"{c.get('label') or c.get('id')} ({(c.get('description') or '').strip()})"
+                if c.get("description")
+                else (c.get("label") or c.get("id"))
+                for c in colorways
+            )
             tokens["notes"].append(
-                f"Official template uses {len(prototypes)} sample-slide layouts "
-                f"and selectable design options: {labels}. Dummy layout count={len(layouts)}."
+                f"Official template uses {len(prototypes)} sample-slide layouts. "
+                f"Palette includes both Sawgrass Lime and Water Teal; staff pick one "
+                f"colorway for convert: {labels}. Dummy layout count={len(layouts)}."
             )
         else:
             swatches = ", ".join(f"{p['label']} {p['hex']}" for p in palette) or "Sawgrass Lime + Water Teal"
             tokens["notes"].append(
-                f"Official template uses {len(prototypes)} sample-slide layouts as designed "
-                f"({swatches}). Green and blue are palette colors on those slides, not "
-                f"separate Design-tab themes. Dummy layout count={len(layouts)}."
+                f"Official template uses {len(prototypes)} sample-slide layouts "
+                f"({swatches}). Dummy layout count={len(layouts)}."
             )
     if not any(
         ph.get("type_name") in {"BODY", "OBJECT", "VERTICAL_BODY"}

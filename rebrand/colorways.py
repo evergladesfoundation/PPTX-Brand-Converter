@@ -1,14 +1,12 @@
-"""Template-native design options (Green / Blue) for the Everglades PPTX.
+"""Green / Blue staff picks mapped onto the 2023 template palette.
 
-The 2023 Foundation file is one deck: sample-slide prototypes with both
-Sawgrass Lime and Water Teal hardcoded as sRGB, plus a staff palette slide.
-It does **not** ship Design-tab variants, extra masters, or extra color
-schemes. Convert must clone those prototypes as drawn — never invent a
-lime↔teal overlay.
+The official PPTX contains both Sawgrass Lime (`C1D451`) and Water Teal
+(`00ACBF`) as hardcoded sRGB on the sample slides (plus Mangrove Green and
+Shell Sand). Those are the source of truth — not Design-tab variants.
 
-If a later template actually encodes selectable options (named extra color
-schemes, extra masters, theme overrides, or green/blue prototype series),
-detect_colorways() exposes them and the staff picker maps onto those labels.
+Staff still pick one for convert. Green applies Lime across the deck; Blue
+applies Teal. Both options stay available. If a later template encodes real
+schemes/masters/series, those labels win.
 """
 
 from __future__ import annotations
@@ -432,16 +430,54 @@ def _colorways_from_theme_overrides(prs, layouts, xml_theme, prototypes) -> list
     return options
 
 
+def _palette_swatch(palette: list[dict[str, str]], hex_value: str, fallback: str) -> str:
+    for item in palette:
+        if hex_color(item.get("hex") or "") == hex_color(hex_value):
+            return item.get("label") or fallback
+    return fallback
+
+
+def _colorways_from_palette(prs, layouts, xml_theme, prototypes) -> list[dict[str, Any]]:
+    """Green / Blue from the template's own Sawgrass Lime and Water Teal swatches."""
+    palette = extract_named_palette(prs)
+    lime_label = _palette_swatch(palette, LIME, "Sawgrass Lime")
+    teal_label = _palette_swatch(palette, TEAL, "Water Teal")
+    shared = _shared_maps(layouts, prototypes)
+    shared.pop("srgb_map", None)
+    major, minor = _sample_fonts(prs)
+    green_theme = _base_theme(major, minor, LIME, TEAL)
+    blue_theme = _base_theme(major, minor, TEAL, LIME)
+    return [
+        {
+            "id": "green",
+            "label": "Green",
+            "description": f"{lime_label} {LIME}",
+            "source": "palette",
+            "theme": green_theme,
+            "srgb_map": {TEAL: LIME, DEEP_TEAL: MANGROVE},
+            **shared,
+        },
+        {
+            "id": "blue",
+            "label": "Blue",
+            "description": f"{teal_label} {TEAL}",
+            "source": "palette",
+            "theme": blue_theme,
+            "srgb_map": {LIME: TEAL, MANGROVE: DEEP_TEAL},
+            **shared,
+        },
+    ]
+
+
 def detect_colorways(
     prs,
     layouts: list[dict[str, Any]],
     theme: dict[str, Any],
     prototypes: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    """Return selectable design options that actually exist in the PPTX.
+    """Return Green/Blue (or later structural options) for the staff picker.
 
-    Empty means the template is a single as-designed palette (the 2023 EF file).
-    Does not invent a lime↔teal overlay when no structural option exists.
+    Always includes both template palette colors as pickable colorways.
     """
     for finder in (
         _colorways_from_extra_schemes,
@@ -452,7 +488,7 @@ def detect_colorways(
         found = finder(prs, layouts, theme, prototypes)
         if len(found) >= 2:
             return found
-    return []
+    return _colorways_from_palette(prs, layouts, theme, prototypes)
 
 
 def apply_colorway(tokens: dict[str, Any], colorway_id: str | None) -> dict[str, Any]:
@@ -473,12 +509,12 @@ def apply_colorway(tokens: dict[str, Any], colorway_id: str | None) -> dict[str,
     tokens.setdefault("srgb_map", {})
 
     if not colorways:
-        tokens["colorway"] = None
-        tokens["colorway_label"] = None
+        tokens["colorway"] = "green"
+        tokens["colorway_label"] = "Green"
         tokens["srgb_map"] = {}
         return tokens
 
-    requested = (colorway_id or tokens.get("colorway") or tokens.get("default_colorway") or "").strip().lower()
+    requested = (colorway_id or tokens.get("colorway") or tokens.get("default_colorway") or "green").strip().lower()
     match = next((c for c in colorways if str(c.get("id") or "").lower() == requested), None)
     if match is None:
         aliases = {"lime": "green", "sawgrass": "green", "sawgrass-lime": "green", "teal": "blue", "water-teal": "blue"}

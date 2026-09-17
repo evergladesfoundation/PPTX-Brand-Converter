@@ -4,7 +4,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TEMPLATE="${1:-$ROOT/templates/everglades.pptx}"
 SOURCE="${2:-$ROOT/fixtures/sample.pptx}"
 OUT="${3:-$ROOT/.tmp/rebrand}"
-COLORWAY="${COLORWAY:-}"
+COLORWAY="${COLORWAY:-green}"
 mkdir -p "$OUT"
 
 if [[ -n "${PYTHON:-}" ]]; then

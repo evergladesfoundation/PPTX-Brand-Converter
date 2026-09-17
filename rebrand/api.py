@@ -107,8 +107,8 @@ def parse_payload(tokens: dict[str, Any], manifest: dict[str, Any], plan: dict[s
         "slides": slides_out,
         "plan": plan,
         "colorways": colorways,
-        "defaultColorway": tokens.get("default_colorway"),
-        "selectedColorway": tokens.get("colorway") or tokens.get("default_colorway"),
+        "defaultColorway": tokens.get("default_colorway") or "green",
+        "selectedColorway": tokens.get("colorway") or tokens.get("default_colorway") or "green",
         "palette": tokens.get("palette") or [],
         "templateNotes": tokens.get("notes") or [],
     }

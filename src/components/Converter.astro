@@ -73,18 +73,29 @@ const { authed, authRequired } = Astro.props;
       <p id="file-label" class="text-ink-muted mt-4 text-sm"></p>
     </div>
 
-    <fieldset
-      id="colorway"
-      class="border-line mt-8 hidden rounded-sm border p-5"
-      hidden
-    >
-      <legend id="colorway-legend" class="text-sm font-bold uppercase">
-        Template design
-      </legend>
-      <p id="colorway-help" class="text-ink-muted mt-1 text-sm font-light">
-        These options come from the official PowerPoint template.
+    <fieldset id="colorway" class="border-line mt-8 rounded-sm border p-5">
+      <legend class="text-sm font-bold uppercase">Green / Blue</legend>
+      <p class="text-ink-muted mt-1 text-sm font-light">
+        The 2023 template includes both palette colors. Pick one for this deck.
       </p>
-      <div id="colorway-options" class="mt-4 flex flex-wrap gap-6"></div>
+      <div id="colorway-options" class="mt-4 flex flex-wrap gap-6">
+        <label class="flex cursor-pointer items-center gap-2 text-sm">
+          <input
+            type="radio"
+            name="colorway"
+            value="green"
+            checked
+            class="accent-accent"
+          />
+          <span
+            ><span class="font-bold">Green</span> — Sawgrass Lime C1D451</span
+          >
+        </label>
+        <label class="flex cursor-pointer items-center gap-2 text-sm">
+          <input type="radio" name="colorway" value="blue" class="accent-accent" />
+          <span><span class="font-bold">Blue</span> — Water Teal 00ACBF</span>
+        </label>
+      </div>
     </fieldset>
 
     <p id="status" class="text-ink-muted mt-6 hidden text-sm" role="status"></p>
@@ -149,7 +160,7 @@ const { authed, authRequired } = Astro.props;
     slides: SlidePreview[];
     templateNotes?: string[];
     colorways?: { id: string; label: string; description?: string }[];
-    selectedColorway?: string | null;
+    selectedColorway?: string;
     palette?: { label: string; hex: string }[];
     error?: string;
   };
@@ -215,7 +226,14 @@ const { authed, authRequired } = Astro.props;
     const checked = document.querySelector(
       'input[name="colorway"]:checked',
     ) as HTMLInputElement | null;
-    return checked?.value || "";
+    return checked?.value === "blue" ? "blue" : "green";
+  }
+
+  function setColorway(id: string) {
+    const radios = document.querySelectorAll('input[name="colorway"]') as NodeListOf<HTMLInputElement>;
+    for (const radio of radios) {
+      radio.checked = radio.value === id;
+    }
   }
 
   function renderColorways(
@@ -224,48 +242,37 @@ const { authed, authRequired } = Astro.props;
   ) {
     const fieldset = document.getElementById("colorway");
     const optionsEl = document.getElementById("colorway-options");
-    const helpEl = document.getElementById("colorway-help");
-    const legendEl = document.getElementById("colorway-legend");
     if (!fieldset || !optionsEl) return;
-    const list = (colorways || []).filter((item) => item.id);
-    if (list.length < 2) {
-      fieldset.hidden = true;
-      fieldset.classList.add("hidden");
-      optionsEl.replaceChildren();
-      return;
-    }
     fieldset.hidden = false;
     fieldset.classList.remove("hidden");
-    if (legendEl) legendEl.textContent = "Template design";
-    if (helpEl) {
-      helpEl.textContent =
-        "Choose the option encoded in the official PowerPoint template. Convert uses that design as drawn — it does not overlay a converter palette.";
-    }
-    const chosen = selected && list.some((item) => item.id === selected) ? selected : list[0].id;
-    optionsEl.replaceChildren();
-    for (const item of list) {
-      const label = document.createElement("label");
-      label.className = "flex cursor-pointer items-center gap-2 text-sm";
-      const input = document.createElement("input");
-      input.type = "radio";
-      input.name = "colorway";
-      input.value = item.id;
-      input.className = "accent-accent";
-      input.checked = item.id === chosen;
-      input.addEventListener("change", () => {
-        if (currentFile) void parseFile(currentFile);
-      });
-      const text = document.createElement("span");
-      const strong = document.createElement("span");
-      strong.className = "font-bold";
-      strong.textContent = item.label;
-      text.append(strong);
-      if (item.description) {
-        text.append(document.createTextNode(` — ${item.description}`));
+    const list = (colorways || []).filter((item) => item.id);
+    if (list.length >= 2) {
+      const chosen =
+        selected && list.some((item) => item.id === selected) ? selected : selectedColorway();
+      optionsEl.replaceChildren();
+      for (const item of list) {
+        const label = document.createElement("label");
+        label.className = "flex cursor-pointer items-center gap-2 text-sm";
+        const input = document.createElement("input");
+        input.type = "radio";
+        input.name = "colorway";
+        input.value = item.id;
+        input.className = "accent-accent";
+        input.checked = item.id === chosen;
+        const text = document.createElement("span");
+        const strong = document.createElement("span");
+        strong.className = "font-bold";
+        strong.textContent = item.label;
+        text.append(strong);
+        if (item.description) {
+          text.append(document.createTextNode(` — ${item.description}`));
+        }
+        label.append(input, text);
+        optionsEl.append(label);
       }
-      label.append(input, text);
-      optionsEl.append(label);
+      return;
     }
+    if (selected) setColorway(selected);
   }
 
   function layoutCaption(role: string) {
@@ -313,8 +320,7 @@ const { authed, authRequired } = Astro.props;
     preview?.classList.add("hidden");
     const body = new FormData();
     body.set("file", file);
-    const colorway = selectedColorway();
-    if (colorway) body.set("colorway", colorway);
+    body.set("colorway", selectedColorway());
     const response = await fetch("/api/parse", { method: "POST", body });
     const payload = (await response.json()) as ParsePayload;
     if (!response.ok) {
@@ -339,9 +345,7 @@ const { authed, authRequired } = Astro.props;
     }
     const design = selectedColorway();
     setStatus(
-      design
-        ? `${payload.slideCount} slides planned · ${design}. Adjust roles if needed, then download.`
-        : `${payload.slideCount} slides planned on the official template. Adjust roles if needed, then download.`,
+      `${payload.slideCount} slides planned · ${design === "blue" ? "Blue (Water Teal)" : "Green (Sawgrass Lime)"}. Adjust roles if needed, then download.`,
     );
     preview?.classList.remove("hidden");
   }
@@ -427,20 +431,23 @@ const { authed, authRequired } = Astro.props;
     const file = fileInput.files?.[0];
     if (file) void parseFile(file);
   });
+  document.getElementById("colorway")?.addEventListener("change", (event) => {
+    const target = event.target as HTMLInputElement | null;
+    if (target?.name === "colorway" && currentFile) void parseFile(currentFile);
+  });
+
   downloadBtn?.addEventListener("click", async () => {
     if (!currentFile) return;
     clearError();
     downloadBtn.disabled = true;
     const colorway = selectedColorway();
     setStatus(
-      colorway
-        ? `Rebuilding onto the Everglades “${colorway}” template design and running QA…`
-        : "Rebuilding onto the Everglades template and running QA…",
+      `Rebuilding onto the Everglades ${colorway === "blue" ? "Blue (Water Teal)" : "Green (Sawgrass Lime)"} colorway and running QA…`,
     );
     qaBox?.classList.add("hidden");
     const body = new FormData();
     body.set("file", currentFile);
-    if (colorway) body.set("colorway", colorway);
+    body.set("colorway", colorway);
     body.set(
       "plan",
       JSON.stringify(
@@ -497,7 +504,7 @@ const { authed, authRequired } = Astro.props;
       if (qaReport) qaReport.textContent = payload.reportMarkdown || "";
       qaBox?.classList.remove("hidden");
       setStatus(
-        `Download started (${payload.slideCount ?? "?"} slides${colorway ? `, ${colorway}` : ""}). Review QA flags below before circulating the deck.`,
+        `Download started (${payload.slideCount ?? "?"} slides, ${colorway === "blue" ? "Blue (Water Teal)" : "Green (Sawgrass Lime)"}). Review QA flags below before circulating the deck.`,
       );
     } catch (error) {
       showError(error instanceof Error ? error.message : "Conversion failed.");

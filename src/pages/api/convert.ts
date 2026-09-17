@@ -1,6 +1,7 @@
 import type { APIRoute } from "astro";
 import {
   convertPptx,
+  COLORWAYS,
   MAX_UPLOAD_BYTES,
   SPEC_ROLES,
   type PlanOverride,
@@ -24,7 +25,10 @@ export const POST: APIRoute = async ({ request }) => {
     return jsonError("File is over the 50 MB limit.", 413);
   }
   const colorwayRaw = form.get("colorway");
-  const colorway = typeof colorwayRaw === "string" && colorwayRaw.trim() ? colorwayRaw.trim() : undefined;
+  const colorway =
+    typeof colorwayRaw === "string" && COLORWAYS.includes(colorwayRaw.toLowerCase() as (typeof COLORWAYS)[number])
+      ? colorwayRaw.toLowerCase()
+      : "green";
   if (typeof planRaw !== "string") {
     return jsonError("Missing plan overrides.", 400);
   }
