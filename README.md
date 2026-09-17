@@ -20,7 +20,7 @@ Dev server: `http://127.0.0.1:4321`
 
 Optional staff password: copy `.env.example` to `.env` and set `INTERNAL_PASSWORD`.
 
-Place Communications’ official 2023 template at `templates/everglades.pptx`. If you only have a `.potx`, the engine rewrites it to `.pptx` on inspect. Staff choose **green** (sawgrass lime) or **blue** (water teal) in the UI before convert; inspect, plan, rebuild, and QA all use that colorway.
+Place Communications’ official 2023 template at `templates/everglades.pptx`. If you only have a `.potx`, the engine rewrites it to `.pptx` on inspect. That file contains **both** palette colors — **Green** is Sawgrass Lime `C1D451`, **Blue** is Water Teal `00ACBF`. Staff pick one; convert applies that colorway to the whole deck.
 
 ## Commands
 
@@ -32,7 +32,7 @@ Place Communications’ official 2023 template at `templates/everglades.pptx`. I
 | `npm run preview`  | Preview the production build locally |
 | `npm run template` | Rebuild a python-pptx starter deck (dev only; does not replace the official Communications file) |
 | `npm run fixture`  | Rebuild `fixtures/sample.pptx` |
-| `rebrand/run.sh`   | Inspect → plan → build → QA on a source deck (`COLORWAY=green|blue`) |
+| `rebrand/run.sh`   | Inspect → plan → build → QA (`COLORWAY=green|blue`) |
 
 CLI (from repo root, using the converter venv):
 

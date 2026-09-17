@@ -73,16 +73,12 @@ const { authed, authRequired } = Astro.props;
       <p id="file-label" class="text-ink-muted mt-4 text-sm"></p>
     </div>
 
-    <fieldset
-      id="colorway"
-      class="border-line mt-8 rounded-sm border p-5"
-    >
-      <legend class="text-sm font-bold uppercase">Template colorway</legend>
+    <fieldset id="colorway" class="border-line mt-8 rounded-sm border p-5">
+      <legend class="text-sm font-bold uppercase">Green / Blue</legend>
       <p class="text-ink-muted mt-1 text-sm font-light">
-        Choose green or blue before convert. Inspect, plan, rebuild, and QA all
-        use this palette.
+        The 2023 template includes both palette colors. Pick one for this deck.
       </p>
-      <div class="mt-4 flex flex-wrap gap-6">
+      <div id="colorway-options" class="mt-4 flex flex-wrap gap-6">
         <label class="flex cursor-pointer items-center gap-2 text-sm">
           <input
             type="radio"
@@ -91,11 +87,13 @@ const { authed, authRequired } = Astro.props;
             checked
             class="accent-accent"
           />
-          <span><span class="font-bold">Green</span> — sawgrass lime</span>
+          <span
+            ><span class="font-bold">Green</span> — Sawgrass Lime C1D451</span
+          >
         </label>
         <label class="flex cursor-pointer items-center gap-2 text-sm">
           <input type="radio" name="colorway" value="blue" class="accent-accent" />
-          <span><span class="font-bold">Blue</span> — water teal</span>
+          <span><span class="font-bold">Blue</span> — Water Teal 00ACBF</span>
         </label>
       </div>
     </fieldset>
@@ -163,6 +161,7 @@ const { authed, authRequired } = Astro.props;
     templateNotes?: string[];
     colorways?: { id: string; label: string; description?: string }[];
     selectedColorway?: string;
+    palette?: { label: string; hex: string }[];
     error?: string;
   };
   type ConvertPayload = {
@@ -237,6 +236,45 @@ const { authed, authRequired } = Astro.props;
     }
   }
 
+  function renderColorways(
+    colorways: { id: string; label: string; description?: string }[] | undefined,
+    selected?: string | null,
+  ) {
+    const fieldset = document.getElementById("colorway");
+    const optionsEl = document.getElementById("colorway-options");
+    if (!fieldset || !optionsEl) return;
+    fieldset.hidden = false;
+    fieldset.classList.remove("hidden");
+    const list = (colorways || []).filter((item) => item.id);
+    if (list.length >= 2) {
+      const chosen =
+        selected && list.some((item) => item.id === selected) ? selected : selectedColorway();
+      optionsEl.replaceChildren();
+      for (const item of list) {
+        const label = document.createElement("label");
+        label.className = "flex cursor-pointer items-center gap-2 text-sm";
+        const input = document.createElement("input");
+        input.type = "radio";
+        input.name = "colorway";
+        input.value = item.id;
+        input.className = "accent-accent";
+        input.checked = item.id === chosen;
+        const text = document.createElement("span");
+        const strong = document.createElement("span");
+        strong.className = "font-bold";
+        strong.textContent = item.label;
+        text.append(strong);
+        if (item.description) {
+          text.append(document.createTextNode(` — ${item.description}`));
+        }
+        label.append(input, text);
+        optionsEl.append(label);
+      }
+      return;
+    }
+    if (selected) setColorway(selected);
+  }
+
   function layoutCaption(role: string) {
     const name = layoutNames[role];
     const index = layoutMap[role];
@@ -295,7 +333,7 @@ const { authed, authRequired } = Astro.props;
     layoutNames = payload.layoutNames || {};
     chosen = payload.slides.map((slide) => slide.role);
     renderSlides(payload.slides);
-    if (payload.selectedColorway) setColorway(payload.selectedColorway);
+    renderColorways(payload.colorways, payload.selectedColorway);
     if (templateNoteEl) {
       const note = payload.templateNotes?.find((item) => !/stand-in|generated starter/i.test(item));
       if (note) {
@@ -305,8 +343,9 @@ const { authed, authRequired } = Astro.props;
         templateNoteEl.classList.add("hidden");
       }
     }
+    const design = selectedColorway();
     setStatus(
-      `${payload.slideCount} slides planned · ${selectedColorway()} colorway. Adjust roles if needed, then download.`,
+      `${payload.slideCount} slides planned · ${design === "blue" ? "Blue (Water Teal)" : "Green (Sawgrass Lime)"}. Adjust roles if needed, then download.`,
     );
     preview?.classList.remove("hidden");
   }
@@ -392,10 +431,9 @@ const { authed, authRequired } = Astro.props;
     const file = fileInput.files?.[0];
     if (file) void parseFile(file);
   });
-  document.querySelectorAll('input[name="colorway"]').forEach((input) => {
-    input.addEventListener("change", () => {
-      if (currentFile) void parseFile(currentFile);
-    });
+  document.getElementById("colorway")?.addEventListener("change", (event) => {
+    const target = event.target as HTMLInputElement | null;
+    if (target?.name === "colorway" && currentFile) void parseFile(currentFile);
   });
 
   downloadBtn?.addEventListener("click", async () => {
@@ -403,11 +441,13 @@ const { authed, authRequired } = Astro.props;
     clearError();
     downloadBtn.disabled = true;
     const colorway = selectedColorway();
-    setStatus(`Rebuilding onto the Everglades ${colorway} template and running QA…`);
+    setStatus(
+      `Rebuilding onto the Everglades ${colorway === "blue" ? "Blue (Water Teal)" : "Green (Sawgrass Lime)"} colorway and running QA…`,
+    );
     qaBox?.classList.add("hidden");
     const body = new FormData();
     body.set("file", currentFile);
-    body.set("colorway", selectedColorway());
+    body.set("colorway", colorway);
     body.set(
       "plan",
       JSON.stringify(
@@ -464,7 +504,7 @@ const { authed, authRequired } = Astro.props;
       if (qaReport) qaReport.textContent = payload.reportMarkdown || "";
       qaBox?.classList.remove("hidden");
       setStatus(
-        `Download started (${payload.slideCount ?? "?"} slides, ${colorway} colorway). Review QA flags below before circulating the deck.`,
+        `Download started (${payload.slideCount ?? "?"} slides, ${colorway === "blue" ? "Blue (Water Teal)" : "Green (Sawgrass Lime)"}). Review QA flags below before circulating the deck.`,
       );
     } catch (error) {
       showError(error instanceof Error ? error.message : "Conversion failed.");

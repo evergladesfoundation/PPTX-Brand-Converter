@@ -20,8 +20,9 @@ export const COLORWAYS = ["green", "blue"] as const;
 export type ColorwayId = (typeof COLORWAYS)[number];
 
 function normalizeColorway(value: string | undefined | null): ColorwayId {
-  const id = (value || "green").toLowerCase();
-  return COLORWAYS.includes(id as ColorwayId) ? (id as ColorwayId) : "green";
+  const raw = (value || "green").trim().toLowerCase();
+  if (raw === "blue" || raw === "teal" || raw === "water-teal") return "blue";
+  return "green";
 }
 
 const API_PY = join("rebrand", "api.py");
@@ -153,16 +154,17 @@ export async function convertPptx(
     const meta = JSON.parse(stdout) as ConvertMeta;
     const file = await readFile(join(dir, "OUTPUT.pptx"));
     const base = fileName.replace(/\.pptx$/i, "") || "presentation";
+    const selected = meta.colorway || chosen;
     return {
       bytes: file,
-      downloadName: `${base}-everglades-${chosen}.pptx`,
+      downloadName: `${base}-everglades-${selected}.pptx`,
       flags: meta.flags ?? [],
       warnings: meta.warnings ?? [],
       checks: meta.checks ?? {},
       reportMarkdown: meta.reportMarkdown ?? "",
       parityDiffs: meta.parityDiffs ?? [],
       slideCount: meta.slideCount ?? 0,
-      colorway: meta.colorway ?? chosen,
+      colorway: selected,
     };
   });
 }
@@ -203,6 +205,7 @@ export type ParseResult = {
   colorways?: { id: string; label: string; description?: string }[];
   defaultColorway?: string;
   selectedColorway?: string;
+  palette?: { label: string; hex: string }[];
   templateNotes?: string[];
 };
 

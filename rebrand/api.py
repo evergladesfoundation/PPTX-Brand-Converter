@@ -97,11 +97,6 @@ def parse_payload(tokens: dict[str, Any], manifest: dict[str, Any], plan: dict[s
         for item in tokens.get("colorways") or []
         if item.get("id")
     ]
-    if not colorways:
-        colorways = [
-            {"id": "green", "label": "Green", "description": "Sawgrass lime accent (C1D451)"},
-            {"id": "blue", "label": "Blue", "description": "Water teal accent (00ACBF)"},
-        ]
     return {
         "fileName": Path(manifest.get("source_path") or "upload.pptx").name,
         "slideCount": int(manifest.get("slide_count") or 0),
@@ -114,6 +109,7 @@ def parse_payload(tokens: dict[str, Any], manifest: dict[str, Any], plan: dict[s
         "colorways": colorways,
         "defaultColorway": tokens.get("default_colorway") or "green",
         "selectedColorway": tokens.get("colorway") or tokens.get("default_colorway") or "green",
+        "palette": tokens.get("palette") or [],
         "templateNotes": tokens.get("notes") or [],
     }
 

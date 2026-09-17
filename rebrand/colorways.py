@@ -1,13 +1,18 @@
-"""Green / blue colorways for the 2023 Everglades Foundation template.
+"""Green / Blue staff picks mapped onto the 2023 template palette.
 
-The official deck ships as sample slides (one dummy DEFAULT layout) with a
-documented lime + teal palette. Colorways are theme-token sets plus an sRGB
-swap so inspect/plan/build/QA all share one selected map.
+The official PPTX contains both Sawgrass Lime (`C1D451`) and Water Teal
+(`00ACBF`) as hardcoded sRGB on the sample slides (plus Mangrove Green and
+Shell Sand). Those are the source of truth — not Design-tab variants.
+
+Staff still pick one for convert. Green applies Lime across the deck; Blue
+applies Teal. Both options stay available. If a later template encodes real
+schemes/masters/series, those labels win.
 """
 
 from __future__ import annotations
 
 import io
+import re
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
@@ -32,6 +37,11 @@ from helpers import (
     placeholder_type,
     resolve_layout_map,
     theme_from_part_xml,
+)
+
+OFFICE_ACCENT1 = "4472C4"
+PALETTE_LABEL_RE = re.compile(
+    r"\b([A-Za-z][A-Za-z ]{1,40}?)\s+([0-9A-Fa-f]{6})\b"
 )
 
 LIME = "C1D451"
@@ -160,62 +170,359 @@ def layout_map_from_prototypes(prototypes: list[dict[str, Any]]) -> dict[str, in
     return mapping
 
 
-def detect_colorways(prs, layouts: list[dict[str, Any]], theme: dict[str, Any], prototypes: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Return green and blue colorway records.
+def _is_generic_office_theme(theme: dict[str, Any] | None) -> bool:
+    colors = (theme or {}).get("colors") or {}
+    fonts = (theme or {}).get("fonts") or {}
+    accent1 = hex_color(colors.get("accent1") or "")
+    major = (fonts.get("major") or "").lower()
+    return accent1 == OFFICE_ACCENT1 or major.startswith("calibri")
 
-    If the package actually has distinct masters/themes, each becomes a colorway
-    with its own layout_map. Otherwise both colorways share sample-slide
-    prototypes and differ by theme tokens + sRGB remap (lime ↔ teal).
+
+def designed_theme(prs, xml_theme: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Theme tokens taken from the template's sample slides + staff palette.
+
+    The package theme part is the leftover Office theme (Calibri / 4472C4). Brand
+    color lives as hardcoded sRGB on the prototypes, so inspect uses that palette
+    for charts/tables instead of the unused Office scheme.
     """
     major, minor = _sample_fonts(prs)
-    proto_map = layout_map_from_prototypes(prototypes) if prototypes else resolve_layout_map(layouts)
-    layout_names = {}
+    if xml_theme and not _is_generic_office_theme(xml_theme):
+        themed = deepcopy(xml_theme)
+        fonts = dict(themed.get("fonts") or {})
+        fonts["major"] = major or fonts.get("major") or "Questrial"
+        fonts["minor"] = minor or fonts.get("minor") or "Arial"
+        themed["fonts"] = fonts
+        return themed
+    return _base_theme(major, minor, LIME, TEAL)
+
+
+def extract_named_palette(prs) -> list[dict[str, str]]:
+    """Named swatches from the staff 'BRAND PALETTE' sample slide, if present."""
+    found: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for slide in prs.slides:
+        texts: list[str] = []
+        for shape in slide.shapes:
+            if getattr(shape, "has_text_frame", False):
+                texts.append(shape.text_frame.text or "")
+        blob = "\n".join(texts)
+        if "brand palette" not in blob.lower() and "sawgrass" not in blob.lower():
+            continue
+        for match in PALETTE_LABEL_RE.finditer(blob):
+            label = re.sub(r"\s+", " ", match.group(1)).strip()
+            hex_value = hex_color(match.group(2))
+            if hex_value in seen:
+                continue
+            seen.add(hex_value)
+            found.append({"label": label, "hex": hex_value})
+    return found
+
+
+def _layout_names_for(layouts: list[dict[str, Any]], prototypes: list[dict[str, Any]], layout_map: dict[str, int]) -> dict[str, str]:
+    names: dict[str, str] = {}
     for proto in prototypes:
-        layout_names[str(proto["index"])] = proto["name"]
+        names[str(proto["index"])] = proto["name"]
     for layout in layouts:
-        layout_names.setdefault(str(layout["index"]), layout.get("name"))
+        names.setdefault(str(layout["index"]), layout.get("name"))
+    return {role: names.get(str(idx), role) for role, idx in layout_map.items()}
 
-    green_theme = _base_theme(major, minor, LIME, TEAL)
-    blue_theme = _base_theme(major, minor, TEAL, LIME)
-    # Official EF slides hardcode Questrial / Arial; keep those over a generic theme part.
 
-    shared = {
+def _shared_maps(layouts: list[dict[str, Any]], prototypes: list[dict[str, Any]]) -> dict[str, Any]:
+    proto_map = layout_map_from_prototypes(prototypes) if prototypes else resolve_layout_map(layouts)
+    return {
         "layout_map": proto_map,
-        "layout_names": {role: layout_names.get(str(idx), role) for role, idx in proto_map.items()},
+        "layout_names": _layout_names_for(layouts, prototypes, proto_map),
         "prototype_indices": [p["index"] for p in prototypes],
         "build_mode": "prototypes" if prototypes else "layouts",
+        "srgb_map": {},
     }
+
+
+def _scheme_from_element(scheme) -> dict[str, str]:
+    colors: dict[str, str] = {}
+    if scheme is None:
+        return colors
+    for child in list(scheme):
+        name = child.tag.split("}")[-1]
+        srgb = child.find(f".//{{{A_NS}}}srgbClr")
+        sys_clr = child.find(f".//{{{A_NS}}}sysClr")
+        if srgb is not None and srgb.get("val"):
+            colors[name] = hex_color(srgb.get("val"))
+        elif sys_clr is not None:
+            colors[name] = hex_color(sys_clr.get("lastClr") or "")
+    return {k: v for k, v in colors.items() if v}
+
+
+def _slug_id(label: str, fallback: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", (label or "").lower()).strip("-")
+    return slug or fallback
+
+
+def _colorways_from_extra_schemes(prs, layouts, xml_theme, prototypes) -> list[dict[str, Any]]:
+    options: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    shared = _shared_maps(layouts, prototypes)
+    base = designed_theme(prs, xml_theme)
+    try:
+        from pptx.opc.constants import RELATIONSHIP_TYPE as RT
+    except Exception:
+        return options
+    theme_blobs: list[bytes] = []
+    for master in prs.slide_masters:
+        for rel in master.part.rels.values():
+            if rel.reltype == RT.THEME:
+                theme_blobs.append(rel.target_part.blob)
+    for blob in theme_blobs:
+        try:
+            root = etree.fromstring(blob)
+        except Exception:
+            continue
+        extra = root.find(f".//{{{A_NS}}}extraClrSchemeLst")
+        if extra is None:
+            continue
+        for extra_scheme in extra:
+            scheme = extra_scheme.find(f"{{{A_NS}}}clrScheme")
+            if scheme is None:
+                continue
+            name = (scheme.get("name") or "").strip()
+            colors = _scheme_from_element(scheme)
+            if not name or not colors:
+                continue
+            option_id = _slug_id(name, f"scheme-{len(options)+1}")
+            if option_id in seen:
+                continue
+            seen.add(option_id)
+            themed = deepcopy(base)
+            themed["colors"] = {**(themed.get("colors") or {}), **colors}
+            options.append(
+                {
+                    "id": option_id,
+                    "label": name,
+                    "description": f"Theme color scheme “{name}” from the template",
+                    "source": "extra_clr_scheme",
+                    "theme": themed,
+                    **shared,
+                }
+            )
+    return options
+
+
+def _colorways_from_masters(prs, layouts, xml_theme, prototypes) -> list[dict[str, Any]]:
+    masters = list(prs.slide_masters)
+    if len(masters) < 2:
+        return []
+    options: list[dict[str, Any]] = []
+    base = designed_theme(prs, xml_theme)
+    for index, master in enumerate(masters):
+        name = (getattr(master, "name", None) or "").strip() or f"Master {index + 1}"
+        master_layouts = []
+        try:
+            for li, layout in enumerate(master.slide_layouts):
+                placeholders = []
+                master_layouts.append(
+                    {
+                        "index": li,
+                        "name": layout.name,
+                        "placeholders": placeholders,
+                        "role": classify_layout_role(layout.name, []),
+                    }
+                )
+        except Exception:
+            master_layouts = [item for item in layouts if item.get("master_index") == index] or layouts
+        layout_map = resolve_layout_map(master_layouts) if master_layouts else resolve_layout_map(layouts)
+        options.append(
+            {
+                "id": _slug_id(name, f"master-{index+1}"),
+                "label": name,
+                "description": f"Slide master “{name}”",
+                "source": "slide_master",
+                "master_index": index,
+                "theme": deepcopy(base),
+                "layout_map": layout_map,
+                "layout_names": {role: next((l["name"] for l in master_layouts if l["index"] == idx), role) for role, idx in layout_map.items()},
+                "prototype_indices": [p["index"] for p in prototypes],
+                "build_mode": "prototypes" if prototypes else "layouts",
+                "srgb_map": {},
+            }
+        )
+    return options
+
+
+def _colorways_from_prototype_series(prs, layouts, xml_theme, prototypes) -> list[dict[str, Any]]:
+    """Split sample slides only when notes/titles name distinct green vs blue series."""
+    buckets: dict[str, list[dict[str, Any]]] = {"green": [], "blue": []}
+    for proto in prototypes:
+        blob = f"{proto.get('name') or ''} {proto.get('notes') or ''}".lower()
+        if re.search(r"\b(blue|teal|water teal)\b", blob) and not re.search(r"\b(green|lime|sawgrass)\b", blob):
+            buckets["blue"].append(proto)
+        elif re.search(r"\b(green|lime|sawgrass)\b", blob) and not re.search(r"\b(blue|teal)\b", blob):
+            buckets["green"].append(proto)
+    if not buckets["green"] or not buckets["blue"]:
+        return []
+    # Require overlapping roles so they are variants of the same layouts, not mixed accents.
+    green_roles = {p["role"] for p in buckets["green"] if p.get("role")}
+    blue_roles = {p["role"] for p in buckets["blue"] if p.get("role")}
+    if not (green_roles & blue_roles):
+        return []
+    base = designed_theme(prs, xml_theme)
+    options = []
+    labels = {"green": "Green", "blue": "Blue"}
+    for key, group in buckets.items():
+        layout_map = layout_map_from_prototypes(group)
+        options.append(
+            {
+                "id": key,
+                "label": labels[key],
+                "description": f"Sample-slide series labeled {labels[key]} in the template",
+                "source": "prototype_series",
+                "theme": deepcopy(base),
+                "layout_map": layout_map,
+                "layout_names": _layout_names_for(layouts, group, layout_map),
+                "prototype_indices": [p["index"] for p in group],
+                "build_mode": "prototypes",
+                "srgb_map": {},
+            }
+        )
+    return options
+
+
+def _colorways_from_theme_overrides(prs, layouts, xml_theme, prototypes) -> list[dict[str, Any]]:
+    options: list[dict[str, Any]] = []
+    shared = _shared_maps(layouts, prototypes)
+    base = designed_theme(prs, xml_theme)
+    pkg = getattr(getattr(prs, "part", None), "package", None)
+    if pkg is None:
+        return options
+    try:
+        parts = list(pkg.iter_parts())
+    except Exception:
+        return options
+    seen: set[str] = set()
+    for part in parts:
+        name = str(getattr(part, "partname", "") or "")
+        if "themeOverride" not in name and "themeoverride" not in name.lower():
+            continue
+        try:
+            blob = part.blob
+            parsed = theme_from_part_xml(blob)
+        except Exception:
+            continue
+        colors = parsed.get("colors") or {}
+        if not colors:
+            continue
+        label = Path(name).stem
+        option_id = _slug_id(label, f"override-{len(options)+1}")
+        if option_id in seen:
+            continue
+        seen.add(option_id)
+        themed = deepcopy(base)
+        themed["colors"] = {**(themed.get("colors") or {}), **colors}
+        options.append(
+            {
+                "id": option_id,
+                "label": label,
+                "description": f"Theme override {label}",
+                "source": "theme_override",
+                "theme": themed,
+                **shared,
+            }
+        )
+    return options
+
+
+def _palette_swatch(palette: list[dict[str, str]], hex_value: str, fallback: str) -> str:
+    for item in palette:
+        if hex_color(item.get("hex") or "") == hex_color(hex_value):
+            return item.get("label") or fallback
+    return fallback
+
+
+def _colorways_from_palette(prs, layouts, xml_theme, prototypes) -> list[dict[str, Any]]:
+    """Green / Blue from the template's own Sawgrass Lime and Water Teal swatches."""
+    palette = extract_named_palette(prs)
+    lime_label = _palette_swatch(palette, LIME, "Sawgrass Lime")
+    teal_label = _palette_swatch(palette, TEAL, "Water Teal")
+    shared = _shared_maps(layouts, prototypes)
+    shared.pop("srgb_map", None)
+    major, minor = _sample_fonts(prs)
+    green_theme = _base_theme(major, minor, LIME, TEAL)
+    blue_theme = _base_theme(major, minor, TEAL, LIME)
     return [
         {
             "id": "green",
             "label": "Green",
-            "description": "Sawgrass lime accent (C1D451)",
+            "description": f"{lime_label} {LIME}",
+            "source": "palette",
             "theme": green_theme,
-            "srgb_map": {},
+            "srgb_map": {TEAL: LIME, DEEP_TEAL: MANGROVE},
             **shared,
         },
         {
             "id": "blue",
             "label": "Blue",
-            "description": "Water teal accent (00ACBF)",
+            "description": f"{teal_label} {TEAL}",
+            "source": "palette",
             "theme": blue_theme,
-            "srgb_map": {LIME: TEAL, TEAL: LIME, "82C769": DEEP_TEAL},
+            "srgb_map": {LIME: TEAL, MANGROVE: DEEP_TEAL},
             **shared,
         },
     ]
 
 
+def detect_colorways(
+    prs,
+    layouts: list[dict[str, Any]],
+    theme: dict[str, Any],
+    prototypes: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Return Green/Blue (or later structural options) for the staff picker.
+
+    Always includes both template palette colors as pickable colorways.
+    """
+    for finder in (
+        _colorways_from_extra_schemes,
+        _colorways_from_masters,
+        _colorways_from_theme_overrides,
+        _colorways_from_prototype_series,
+    ):
+        found = finder(prs, layouts, theme, prototypes)
+        if len(found) >= 2:
+            return found
+    return _colorways_from_palette(prs, layouts, theme, prototypes)
+
+
 def apply_colorway(tokens: dict[str, Any], colorway_id: str | None) -> dict[str, Any]:
     tokens = dict(tokens)
     colorways = tokens.get("colorways") or []
-    chosen_id = (colorway_id or tokens.get("default_colorway") or "green").lower()
-    match = next((c for c in colorways if c.get("id") == chosen_id), None)
-    if match is None and colorways:
-        match = colorways[0]
-        chosen_id = match["id"]
-    if match is None:
-        tokens["colorway"] = chosen_id
+    brand = dict(tokens.get("brand_md") or {})
+    brand["color_whitelist"] = sorted(set((brand.get("color_whitelist") or []) + EF_WHITELIST))
+    extra_fonts = [
+        ((tokens.get("theme") or {}).get("fonts") or {}).get("major"),
+        ((tokens.get("theme") or {}).get("fonts") or {}).get("minor"),
+        "Questrial",
+        "Arial",
+        "Arial Nova",
+        "Poppins",
+    ]
+    brand["fonts"] = sorted({f for f in list(brand.get("fonts") or []) + extra_fonts if f})
+    tokens["brand_md"] = brand
+    tokens.setdefault("srgb_map", {})
+
+    if not colorways:
+        tokens["colorway"] = "green"
+        tokens["colorway_label"] = "Green"
+        tokens["srgb_map"] = {}
         return tokens
+
+    requested = (colorway_id or tokens.get("colorway") or tokens.get("default_colorway") or "green").strip().lower()
+    match = next((c for c in colorways if str(c.get("id") or "").lower() == requested), None)
+    if match is None:
+        aliases = {"lime": "green", "sawgrass": "green", "sawgrass-lime": "green", "teal": "blue", "water-teal": "blue"}
+        alias = aliases.get(requested)
+        if alias:
+            match = next((c for c in colorways if str(c.get("id") or "").lower() == alias), None)
+    if match is None:
+        match = colorways[0]
     tokens["colorway"] = match["id"]
     tokens["theme"] = match.get("theme") or tokens.get("theme")
     tokens["layout_map"] = match.get("layout_map") or tokens.get("layout_map")
@@ -223,16 +530,8 @@ def apply_colorway(tokens: dict[str, Any], colorway_id: str | None) -> dict[str,
     tokens["srgb_map"] = match.get("srgb_map") or {}
     tokens["build_mode"] = match.get("build_mode") or tokens.get("build_mode") or "layouts"
     tokens["colorway_label"] = match.get("label") or match["id"]
-    brand = dict(tokens.get("brand_md") or {})
-    brand["color_whitelist"] = sorted(set((brand.get("color_whitelist") or []) + EF_WHITELIST))
-    extra_fonts = [
-        (match.get("theme") or {}).get("fonts", {}).get("major"),
-        (match.get("theme") or {}).get("fonts", {}).get("minor"),
-        "Questrial",
-        "Arial",
-        "Arial Nova",
-        "Poppins",
-    ]
+    extra_fonts.append(((match.get("theme") or {}).get("fonts") or {}).get("major"))
+    extra_fonts.append(((match.get("theme") or {}).get("fonts") or {}).get("minor"))
     brand["fonts"] = sorted({f for f in list(brand.get("fonts") or []) + extra_fonts if f})
     tokens["brand_md"] = brand
     return tokens

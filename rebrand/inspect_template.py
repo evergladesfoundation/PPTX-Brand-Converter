@@ -26,7 +26,13 @@ from helpers import (  # noqa: E402
     resolve_layout_map,
     theme_from_part_xml,
 )
-from colorways import apply_colorway, detect_colorways, discover_prototypes  # noqa: E402
+from colorways import (  # noqa: E402
+    apply_colorway,
+    designed_theme,
+    detect_colorways,
+    discover_prototypes,
+    extract_named_palette,
+)
 
 
 def _theme_xml(prs: Presentation) -> bytes:
@@ -167,6 +173,8 @@ def inspect_template(
     if brand.get("east_asian_font") and not theme["fonts"].get("minor_ea"):
         theme["fonts"]["minor_ea"] = brand["east_asian_font"]
     colorways = detect_colorways(prs, layouts, theme, prototypes)
+    palette = extract_named_palette(prs)
+    as_designed = designed_theme(prs, theme)
 
     tokens = {
         "template_path": str(used.resolve()),
@@ -180,7 +188,9 @@ def inspect_template(
         "layouts": layouts,
         "prototypes": prototypes,
         "layout_map": colorways[0]["layout_map"] if colorways else layout_map,
-        "theme": colorways[0]["theme"] if colorways else theme,
+        "theme": colorways[0]["theme"] if colorways else as_designed,
+        "xml_theme": theme,
+        "palette": palette,
         "sample_title_slide_fonts": sample_title,
         "layout_title_fonts": layout_title_fonts,
         "curly_quotes": curly,
@@ -191,10 +201,24 @@ def inspect_template(
         "notes": [],
     }
     if prototypes:
-        tokens["notes"].append(
-            f"Official template uses {len(prototypes)} sample-slide layouts "
-            f"(green / blue colorways). Dummy layout count={len(layouts)}."
-        )
+        if colorways:
+            labels = ", ".join(
+                f"{c.get('label') or c.get('id')} ({(c.get('description') or '').strip()})"
+                if c.get("description")
+                else (c.get("label") or c.get("id"))
+                for c in colorways
+            )
+            tokens["notes"].append(
+                f"Official template uses {len(prototypes)} sample-slide layouts. "
+                f"Palette includes both Sawgrass Lime and Water Teal; staff pick one "
+                f"colorway for convert: {labels}. Dummy layout count={len(layouts)}."
+            )
+        else:
+            swatches = ", ".join(f"{p['label']} {p['hex']}" for p in palette) or "Sawgrass Lime + Water Teal"
+            tokens["notes"].append(
+                f"Official template uses {len(prototypes)} sample-slide layouts "
+                f"({swatches}). Dummy layout count={len(layouts)}."
+            )
     if not any(
         ph.get("type_name") in {"BODY", "OBJECT", "VERTICAL_BODY"}
         for layout in layouts
@@ -219,7 +243,10 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     brand_md = Path(args.brand_md) if args.brand_md else None
     tokens = inspect_template(template, Path(args.out_dir), brand_md, args.colorway)
-    print(f"Wrote {Path(args.out_dir) / 'brand_tokens.json'} ({len(tokens['layouts'])} layouts, colorway={tokens.get('colorway')})")
+    print(
+        f"Wrote {Path(args.out_dir) / 'brand_tokens.json'} "
+        f"({len(tokens['layouts'])} layouts, colorway={tokens.get('colorway') or 'as-designed'})"
+    )
     return 0
 
 
