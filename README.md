@@ -20,7 +20,7 @@ Dev server: `http://127.0.0.1:4321`
 
 Optional staff password: copy `.env.example` to `.env` and set `INTERNAL_PASSWORD`.
 
-Place Communications’ official 2023 template at `templates/everglades.pptx`. If you only have a `.potx`, the engine rewrites it to `.pptx` on inspect. Staff choose **green** (sawgrass lime) or **blue** (water teal) in the UI before convert; inspect, plan, rebuild, and QA all use that colorway.
+Place Communications’ official 2023 template at `templates/everglades.pptx`. If you only have a `.potx`, the engine rewrites it to `.pptx` on inspect. Green and blue in that file are **palette colors on the sample slides** (Sawgrass Lime `C1D451` and Water Teal `00ACBF`), not a converter overlay and not Design-tab theme variants. Convert clones those layouts as drawn. A staff picker appears only if a later template actually encodes two selectable design options.
 
 ## Commands
 
@@ -32,19 +32,21 @@ Place Communications’ official 2023 template at `templates/everglades.pptx`. I
 | `npm run preview`  | Preview the production build locally |
 | `npm run template` | Rebuild a python-pptx starter deck (dev only; does not replace the official Communications file) |
 | `npm run fixture`  | Rebuild `fixtures/sample.pptx` |
-| `rebrand/run.sh`   | Inspect → plan → build → QA on a source deck (`COLORWAY=green|blue`) |
+| `rebrand/run.sh`   | Inspect → plan → build → QA on a source deck |
 
 CLI (from repo root, using the converter venv):
 
 ```sh
-python rebrand/inspect_template.py templates/everglades.pptx --out-dir .tmp/rebrand --colorway green
+python rebrand/inspect_template.py templates/everglades.pptx --out-dir .tmp/rebrand
 python rebrand/inspect_source.py fixtures/sample.pptx --out-dir .tmp/rebrand
-python rebrand/plan.py --out-dir .tmp/rebrand --colorway green
-python rebrand/build.py --out-dir .tmp/rebrand --colorway green
-python rebrand/qa.py --out-dir .tmp/rebrand --colorway green
+python rebrand/plan.py --out-dir .tmp/rebrand
+python rebrand/build.py --out-dir .tmp/rebrand
+python rebrand/qa.py --out-dir .tmp/rebrand
 ```
 
-Or: `COLORWAY=blue rebrand/run.sh templates/everglades.pptx fixtures/sample.pptx .tmp/rebrand`
+Or: `rebrand/run.sh templates/everglades.pptx fixtures/sample.pptx .tmp/rebrand`
+
+Optional `COLORWAY=` / `--colorway` is only used when the template itself exposes named design options (extra color schemes, extra masters, or labeled prototype series). The 2023 EF file does not.
 
 ## Project structure
 

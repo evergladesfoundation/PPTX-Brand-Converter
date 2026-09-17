@@ -607,7 +607,7 @@ def main(argv: list[str] | None = None) -> int:
         brand_md=brand_md,
         colorway=args.colorway,
     )
-    print(f"Wrote {meta['output']} ({meta['slide_count']} slides, colorway={meta.get('colorway')})")
+    print(f"Wrote {meta['output']} ({meta['slide_count']} slides, colorway={meta.get('colorway') or 'as-designed'})")
     return 0
 
 
